@@ -7,11 +7,11 @@ import re
 import requests
 import time
 
-# Intentar importar Groq
+# Intentar importar Groq de forma segura
 try:
     from groq import Groq
 except ImportError:
-    st.error("Error: 'groq' no encontrado en el sistema.")
+    st.error("Error: 'groq' no encontrado. Revisa requirements.txt")
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Turidex Pro", page_icon="📸")
@@ -24,30 +24,32 @@ try:
     client_groq = Groq(api_key=st.secrets["GROQ_API_KEY"])
     
     HF_TOKEN = st.secrets["HUGGINGFACE_API_KEY"]
+    # Usamos un modelo de reconocimiento de objetos muy estable
     API_URL_HF = "https://api-inference.huggingface.co/models/google/vit-base-patch16-224"
     headers_hf = {"Authorization": f"Bearer {HF_TOKEN}"}
 except Exception as e:
-    st.error(f"Revisa tus Secrets: {e}")
+    st.error("Error en la configuración de llaves (Secrets).")
 
 def limpiar_texto(t):
     return re.sub(r'[*#_]', '', t)
 
 def consulta_huggingface(img_pil):
     import io
-    img_rgb = img_pil.convert("RGB")
-    img_bytes = io.BytesIO()
-    img_rgb.save(img_bytes, format='JPEG')
-    data = img_bytes.getvalue()
-    
-    # Intentar 3 veces por si el modelo está cargando
-    for _ in range(3):
-        response = requests.post(API_URL_HF, headers=headers_hf, data=data)
-        resultado = response.json()
-        if isinstance(resultado, dict) and "estimated_time" in resultado:
-            time.sleep(2)
-            continue
-        return resultado
-    return None
+    try:
+        img_rgb = img_pil.convert("RGB")
+        img_bytes = io.BytesIO()
+        img_rgb.save(img_bytes, format='JPEG')
+        data = img_bytes.getvalue()
+        
+        response = requests.post(API_URL_HF, headers=headers_hf, data=data, timeout=10)
+        
+        # Si no es un 200 (OK), no intentamos leer el JSON
+        if response.status_code != 200:
+            return None
+            
+        return response.json()
+    except Exception:
+        return None
 
 archivo = st.file_uploader("Sube una foto...", type=["jpg", "png", "jpeg"])
 
@@ -62,15 +64,15 @@ if archivo:
 
             # 1. INTENTO CON GOOGLE
             try:
-                status.write("📡 Intentando con Google...")
+                status.write("📡 Consultando IA Principal...")
                 res_g = model_google.generate_content(["Dime solo el nombre de este plato (2 palabras).", img])
                 nombre = res_g.text.strip()
-            except:
+            except Exception:
                 # 2. RESPALDO CON HUGGING FACE
-                status.write("⚠️ Google saturado. Activando respaldo...")
+                status.write("⚠️ Google ocupado. Activando respaldo...")
                 res_hf = consulta_huggingface(img)
-                if res_hf and isinstance(res_hf, list):
-                    nombre = res_hf[0]['label'].split(',')[0]
+                if res_hf and isinstance(res_hf, list) and len(res_hf) > 0:
+                    nombre = res_hf[0].get('label', 'Plato Típico').split(',')[0]
                 else:
                     nombre = "Plato Típico"
 
@@ -84,18 +86,25 @@ if archivo:
                         model="llama-3.3-70b-versatile",
                     )
                     res_final = comp.choices[0].message.content
-                except:
-                    res_final = f"NOMBRE: {nombre}\nHISTORIA: Delicioso plato identificado.\nDATO: ¡Disfrútalo!"
+                except Exception:
+                    res_final = f"NOMBRE: {nombre}\nHISTORIA: Identificado con éxito, pero el narrador está ocupado.\nDATO: Es un plato delicioso que representa la cultura local."
 
             if res_final:
-                status.update(label="✅ ¡Listo!", state="complete")
+                status.update(label="✅ ¡Proceso finalizado!", state="complete")
                 st.markdown(res_final)
                 
                 # Mapa
-                link = f"https://www.google.com/maps/search/{nombre.replace(' ', '+')}+cerca+de+mi"
+                query_mapa = nombre.replace(' ', '+')
+                link = f"https://www.google.com/maps/search/{query_mapa}+cerca+de+mi"
                 st.link_button(f"📍 BUSCAR {nombre.upper()} CERCA", link)
                 
                 # Audio
-                tts = gTTS(text=limpiar_texto(res_final), lang='es')
-                tts.save("v.mp3")
-                st.audio("v.mp3")
+                try:
+                    tts = gTTS(text=limpiar_texto(res_final), lang='es')
+                    tts.save("v.mp3")
+                    st.audio("v.mp3")
+                except:
+                    st.warning("No se pudo generar el audio.")
+            else:
+                st.error("Servidores saturados. Por favor espera 10 segundos y reintenta.")
+                
