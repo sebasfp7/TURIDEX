@@ -39,6 +39,7 @@ st.markdown("""
         padding: 10px;
         margin: 0 auto;
         width: 260px;
+        text-align: center;
     }
     .data-card {
         background-color: #30A7D7;
@@ -62,7 +63,11 @@ st.markdown("""
 
 st.markdown("<h1 class='pokedex-title'>TURIDEX</h1>", unsafe_allow_html=True)
 
-client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+# Cliente de Groq seguro
+try:
+    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+except Exception:
+    st.error("Error: Configura tu GROQ_API_KEY en los Secrets.")
 
 def encode_image(image_file):
     return base64.b64encode(image_file.getvalue()).decode('utf-8')
@@ -76,19 +81,19 @@ if archivo:
     st.markdown("</div>", unsafe_allow_html=True)
     
     if st.button("🔍 INICIAR ESCÁNER"):
-        # Mensaje de carga sencillo, la info aparecerá abajo automáticamente
-        with st.spinner("⏳ La IA está analizando cada detalle..."):
+        with st.spinner("⏳ La IA está analizando cada detalle de forma lógica..."):
             try:
                 base64_image = encode_image(archivo)
                 
-                prompt = """Actúa como una Pokédex experta. Identifica el objeto/plato. 
-                Sé extremadamente LÓGICO con los stats (Ej: Una Margarita NO es picante).
-                Responde en ESPAÑOL:
+                # Prompt con instrucciones de pensamiento lento y lógico
+                prompt = """Actúa como una Pokédex experta. Analiza la imagen y responde en ESPAÑOL.
+                Tómate tu tiempo para ser LÓGICO: si es una pizza margarita, el picante es 0. 
+                Sigue este formato estrictamente:
                 NOMBRE: [Nombre]
                 TIPO: [Categoría]
-                DESC: [Descripción de una línea]
-                HISTORIA: [Dos párrafos culturales]
-                STATS: [4 números del 0 al 100 para: Sabor, Picante, Salud, Rareza]
+                DESC: [Descripción breve]
+                HISTORIA: [Dos párrafos detallados]
+                STATS: [Sabor, Picante, Salud, Rareza - 4 números del 0 al 100 separados por comas]
                 EVOS: [3 versiones alternativas separadas por comas]"""
 
                 chat = client.chat.completions.create(
@@ -97,49 +102,67 @@ if archivo:
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                     ]}],
                     model="llama-3.2-90b-vision-preview",
-                    temperature=0.2 # Menor temperatura = más precisión y coherencia
+                    temperature=0.1 # Muy bajo para máxima lógica
                 )
                 
                 res = chat.choices[0].message.content
 
-                # --- EXTRACCIÓN DIRECTA (SIN CLICS EXTRA) ---
-                nombre = res.split("NOMBRE:")[1].split("\n")[0].strip()
-                tipo = res.split("TIPO:")[1].split("\n")[0].strip()
-                desc = res.split("DESC:")[1].split("\n")[0].strip()
-                historia = res.split("HISTORIA:")[1].split("STATS:")[0].strip()
-                stats_raw = res.split("STATS:")[1].split("EVOS:")[0].strip()
-                evos = res.split("EVOS:")[1].strip().split(",")
+                # --- EXTRACCIÓN ROBUSTA (Evita el error de conexión) ---
+                def extraer(clave, texto):
+                    try:
+                        parte = texto.split(clave + ":")[1]
+                        # Buscar la siguiente clave para cortar
+                        for k in ["NOMBRE", "TIPO", "DESC", "HISTORIA", "STATS", "EVOS"]:
+                            if k + ":" in parte:
+                                parte = parte.split(k + ":")[0]
+                        return parte.strip()
+                    except:
+                        return "Dato no disponible"
 
-                nums = [int(n.strip()) for n in stats_raw.split(",")]
+                nombre = extraer("NOMBRE", res)
+                tipo = extraer("TIPO", res)
+                desc = extraer("DESC", res)
+                historia = extraer("HISTORIA", res)
+                stats_raw = extraer("STATS", res)
+                evos_raw = extraer("EVOS", res)
 
-                # --- MOSTRAR TODO INMEDIATAMENTE ---
+                # Procesar Stats
+                try:
+                    nums = [int(n.strip()) for n in stats_raw.replace('[','').replace(']','').split(",")]
+                except:
+                    nums = [50, 0, 50, 10]
+
+                # Procesar Evoluciones
+                evos = evos_raw.split(",") if "," in evos_raw else ["Ver. A", "Ver. B", "Ver. C"]
+
+                # --- MOSTRAR RESULTADOS INMEDIATAMENTE ---
                 st.markdown(f"## 📋 {nombre}")
-                
                 st.markdown(f"<div class='data-card'><b>Tipo:</b> {tipo}<br><i>{desc}</i></div>", unsafe_allow_html=True)
                 
                 st.write(historia)
 
-                st.subheader("📊 Puntos Base")
+                st.subheader("📊 Puntos Base (Estadísticas Lógicas)")
                 c1, c2 = st.columns(2)
                 labels = ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
+                
                 with c1:
                     st.write(f"{labels[0]}: {nums[0]}%")
-                    st.progress(nums[0]/100)
+                    st.progress(min(nums[0]/100, 1.0))
                     st.write(f"{labels[1]}: {nums[1]}%")
-                    st.progress(nums[1]/100)
+                    st.progress(min(nums[1]/100, 1.0))
                 with c2:
                     st.write(f"{labels[2]}: {nums[2]}%")
-                    st.progress(nums[2]/100)
+                    st.progress(min(nums[2]/100, 1.0))
                     st.write(f"{labels[3]}: {nums[3]}%")
-                    st.progress(nums[3]/100)
+                    st.progress(min(nums[3]/100, 1.0))
 
                 st.markdown("### 🔄 Otras Presentaciones")
-                ec1, ec2, ec3 = st.columns(3)
-                with ec1: st.markdown(f"<div class='evo-card'>{evos[0]}</div>", unsafe_allow_html=True)
-                with ec2: st.markdown(f"<div class='evo-card'>{evos[1]}</div>", unsafe_allow_html=True)
-                with ec3: st.markdown(f"<div class='evo-card'>{evos[2]}</div>", unsafe_allow_html=True)
+                ec = st.columns(len(evos[:3]))
+                for i, col in enumerate(ec):
+                    with col:
+                        st.markdown(f"<div class='evo-card'>{evos[i].strip()}</div>", unsafe_allow_html=True)
 
-                # Audio automático al final
+                # Audio automático
                 audio_text = f"{nombre}. {tipo}. {desc}. {historia}"
                 tts = gTTS(text=re.sub(r'[*#_]', '', audio_text), lang='es')
                 fp = io.BytesIO()
@@ -147,6 +170,7 @@ if archivo:
                 st.audio(fp)
 
             except Exception as e:
-                st.error("Error en la conexión. Intenta de nuevo.")
+                st.error(f"Error técnico: {e}")
+                st.info("Intenta subir la imagen de nuevo o revisa si Groq tiene saldo en su tier gratuito.")
 
 st.markdown("</div>", unsafe_allow_html=True)
