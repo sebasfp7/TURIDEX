@@ -54,7 +54,7 @@ def resize_image(image_file):
 
 def generate_image(name):
     try:
-        url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(f'{name}, realistic, high quality, clean background')}"
+        url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(f'{name}, realistic, high quality, clean background, national geographic style')}"
         resp = requests.get(url + "?width=700&height=500&nologo=true", timeout=10)
         if resp.status_code == 200:
             return Image.open(BytesIO(resp.content))
@@ -64,27 +64,29 @@ def generate_image(name):
 
 def get_prompt(is_image=True, item_name=None, category=None):
     if is_image:
-        return """Analiza la imagen y responde **SOLO** con un JSON válido:
+        return """Analiza la imagen y responde **SOLO** con un JSON válido. Historia debe ser larga y detallada (mínimo 120 palabras en total).
 
 {
   "nombre": "Nombre claro",
   "categoria": "ANIMAL",
   "desc": "Descripción corta máximo 15 palabras",
-  "historia": "Dos párrafos cortos con información real",
-  "stats": [85, 80, 75, 60],
+  "historia": "Dos párrafos largos y ricos en información real (origen, hábitat, comportamiento, curiosidades)",
+  "stats": [90, 85, 80, 70],
   "evos": ["Tigre", "Leopardo", "Jaguar"]
 }
 
-Si es ANIMAL usa stats de Fuerza, Agilidad, Peligro, Rareza. Las evos deben ser solo nombres cortos."""
+Reglas importantes:
+- Si es ANIMAL: Fuerza, Agilidad, Peligro y Rareza deben ser altos para animales imponentes como leones (mínimo 70).
+- Las evos deben ser solo nombres cortos del mismo tipo."""
     else:
-        return f"""Responde **solo** con un JSON válido sobre "{item_name}":
+        return f"""Responde **solo** con un JSON válido sobre "{item_name}". La historia debe ser larga y detallada.
 
 {{
   "nombre": "{item_name}",
   "categoria": "{category or 'ANIMAL'}",
   "desc": "descripción corta",
-  "historia": "dos párrafos cortos",
-  "stats": [80, 85, 70, 60],
+  "historia": "Dos párrafos largos con información real (origen, características, curiosidades, importancia)",
+  "stats": [88, 82, 78, 65],
   "evos": ["Nombre1", "Nombre2", "Nombre3"]
 }}"""
 
@@ -133,7 +135,7 @@ with st.container():
                 bytes_opt = resize_image(archivo)
                 b64 = base64.b64encode(bytes_opt).decode()
                 add_log("[2] Enviando al modelo...")
-                
+
                 prompt = get_prompt(is_image=True)
                 response = client.chat.completions.create(
                     messages=[{"role": "user", "content": [
@@ -142,7 +144,7 @@ with st.container():
                     ]}],
                     model=SELECTED_MODEL,
                     temperature=0.1,
-                    max_tokens=1000
+                    max_tokens=1200
                 )
                 add_log("[3] Respuesta recibida")
                 data = parse_json(response.choices[0].message.content)
@@ -153,8 +155,6 @@ with st.container():
                     st.session_state.current_data = data
                     add_log(f"[SUCCESS] → {st.session_state.current_item}")
                     st.rerun()
-                else:
-                    add_log("[ERROR] No se pudo parsear el JSON")
             except Exception as e:
                 st.session_state.log.append(f"[ERROR] {str(e)}")
                 st.error(f"Error: {str(e)}")
@@ -162,7 +162,7 @@ with st.container():
         elif st.session_state.current_item and st.session_state.current_data:
             data = st.session_state.current_data
             labels = get_labels(data.get("categoria", "ANIMAL"))
-            stats = data.get("stats", [75, 80, 65, 55])
+            stats = data.get("stats", [80, 80, 75, 65])
             variantes = data.get("evos", ["Tigre", "Leopardo", "Jaguar"])[:3]
 
             with col_img:
@@ -170,7 +170,8 @@ with st.container():
                 if img:
                     st.image(img, use_container_width=True, caption=data.get("nombre"))
                 else:
-                    st.image(archivo, use_container_width=True)
+                    if 'archivo' in locals():
+                        st.image(archivo, use_container_width=True)
 
             with col_info:
                 st.markdown(f"## {data.get('nombre', 'León')}")
@@ -199,7 +200,7 @@ with st.container():
                         st.rerun()
 
                 try:
-                    text_audio = f"{data.get('nombre')}. {data.get('desc', '')}. {data.get('historia', '')[:150]}"
+                    text_audio = f"{data.get('nombre')}. {data.get('desc', '')}. {data.get('historia', '')}"
                     tts = gTTS(text_audio, lang='es')
                     fp = io.BytesIO()
                     tts.write_to_fp(fp)
