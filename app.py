@@ -22,37 +22,83 @@ st.markdown("""
         padding: 25px;
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
     }
+    
+    /* HEADER UNIFICADO - SOLO CUADRO NEGRO CON TÍTULO */
     .pokedex-title-box {
         background-color: #000000;
         border: 4px solid #DC0A2D;
         border-radius: 10px;
-        padding: 10px;
+        padding: 15px;
         text-align: center;
         margin-bottom: 20px;
     }
-    .pokedex-title { color: #FFFFFF !important; font-family: 'Courier New', monospace; font-size: 3em; margin: 0; }
-    .black-text, p, h1, h2, h3, span, label, div { color: #000000 !important; font-weight: 600; }
+    .pokedex-title { 
+        color: #FFDE00 !important; 
+        font-family: 'Courier New', monospace; 
+        font-size: 3.5em; 
+        margin: 0;
+        text-shadow: 3px 3px 0px #DC0A2D, 
+                     -1px -1px 0px #DC0A2D,  
+                     1px -1px 0px #DC0A2D,
+                     -1px 1px 0px #DC0A2D,
+                     1px 1px 0px #DC0A2D;
+        letter-spacing: 5px;
+    }
+    
+    /* INDICADOR DE ESTADO */
+    .status-indicator {
+        background-color: rgba(0, 0, 0, 0.8);
+        color: #00FF00;
+        padding: 8px 15px;
+        border-radius: 5px;
+        text-align: center;
+        font-family: 'Courier New', monospace;
+        font-size: 0.9em;
+        margin-top: 10px;
+        border: 2px solid #00FF00;
+    }
+    
+    /* TEXTO CON MÁXIMA LEGIBILIDAD */
+    .black-text, p, h1, h2, h3, span, label, div { 
+        color: #000000 !important; 
+        font-weight: 600;
+        text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8),
+                     -1px -1px 2px rgba(255, 255, 255, 0.8);
+    }
+    
     .data-card {
-        background-color: rgba(0, 0, 0, 0.05);
+        background-color: rgba(255, 255, 255, 0.92);
         border-left: 5px solid #DC0A2D;
         padding: 15px;
         border-radius: 5px;
         margin: 10px 0;
+        box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
     }
+    
+    .historia-box {
+        background-color: rgba(255, 255, 255, 0.92);
+        padding: 15px;
+        border-radius: 5px;
+        margin: 10px 0;
+        box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
+    }
+    
     .evo-tag {
         background-color: #FFCC00;
         color: black !important;
-        padding: 6px 14px;
+        padding: 8px 16px;
         border-radius: 15px;
         font-weight: bold;
         display: inline-block;
-        margin: 4px;
-        border: 1px solid #000;
+        margin: 5px;
+        border: 2px solid #000;
+        box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<div class='pokedex-title-box'><h1 class='pokedex-title'>TURIDEX</h1></div>", unsafe_allow_html=True)
+# HEADER ÚNICO CON TÍTULO
+st.markdown("<div class='pokedex-title-box'><h1 class='pokedex-title'>⚡ TURIDEX ⚡</h1></div>", unsafe_allow_html=True)
 
 try:
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
@@ -62,8 +108,32 @@ except:
 def encode_image(image_file):
     return base64.b64encode(image_file.getvalue()).decode('utf-8')
 
+def sanitizar_texto(texto):
+    """Función de limpieza: elimina símbolos, duplicados y formatea"""
+    # Elimina símbolos especiales
+    texto = re.sub(r'[*#_\[\]]', '', texto)
+    # Elimina saltos de línea múltiples
+    texto = re.sub(r'\n{3,}', '\n\n', texto)
+    return texto.strip()
+
+def extraer_dato(tag, texto):
+    """Extracción única y limpia de datos - PRIMERA APARICIÓN SOLAMENTE"""
+    patron = rf"{tag}:\s*(.*?)(?=\n(?:NOMBRE|CATEGORIA|DESC|HISTORIA|STATS|EVOS):|$)"
+    matches = re.findall(patron, texto, re.S | re.I)
+    
+    if matches:
+        # TOMA SOLO LA PRIMERA APARICIÓN
+        contenido = matches[0].strip()
+        return sanitizar_texto(contenido)
+    return "Dato no disponible"
+
 with st.container():
     st.markdown("<div class='pokedex-frame'>", unsafe_allow_html=True)
+    
+    # Indicador de estado
+    estado_placeholder = st.empty()
+    estado_placeholder.markdown("<div class='status-indicator'>⏳ Esperando objetivo...</div>", unsafe_allow_html=True)
+    
     col_img, col_info = st.columns([1, 2])
     
     with col_img:
@@ -73,102 +143,111 @@ with st.container():
             analizar = st.button("🔍 ESCANEAR OBJETIVO")
 
     if archivo and analizar:
-        with st.spinner("Analizando..."):
+        estado_placeholder.markdown("<div class='status-indicator'>🔄 Analizando datos...</div>", unsafe_allow_html=True)
+        
+        with st.spinner("Procesando..."):
             try:
                 img_b64 = encode_image(archivo)
                 
                 # ========================================
-                # 🎯 PROMPT DEFINITIVO ULTRA-ESPECÍFICO
+                # 🎯 PROMPT DEFINITIVO V2.0
                 # ========================================
-                prompt = """Eres el sistema TURIDEX. Analiza esta imagen con MÁXIMA PRECISIÓN.
+                prompt = """Eres TURIDEX, sistema avanzado de identificación. Sigue estas instrucciones AL PIE DE LA LETRA.
 
-🔍 PASO 1 - IDENTIFICACIÓN EXACTA:
-Observa la imagen y determina QUÉ ES usando estos criterios ESTRICTOS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 FASE 1: IDENTIFICACIÓN PRECISA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📌 COMIDA - Identifica por ingredientes visuales:
-   • SALCHIPAPA: Papas fritas cortadas en bastones + trozos de salchicha rosada/roja. NO tiene chips de maíz.
-   • NACHOS: Chips triangulares de maíz amarillo/blanco con queso derretido. NO tiene papas ni salchichas.
-   • PIZZA: Masa circular con salsa roja, queso y toppings.
-   • HAMBURGUESA: Pan con carne entre dos mitades.
-   • CEVICHE: Pescado crudo con limón, cebolla y ají.
+Observa la imagen y clasifica en UNA de estas categorías:
 
-📌 ANIMAL - Identifica por características biológicas:
-   • LEÓN: Melena grande, felino grande, color dorado.
-   • PERRO: Doméstico, orejas caídas/paradas, cola.
-   • ÁGUILA: Ave rapaz, pico curvo, alas grandes.
-   • SERPIENTE: Reptil sin patas, cuerpo largo.
+🍕 COMIDA: Cualquier alimento, bebida o plato culinario
+   Ejemplos: Pizza, Salchipapa, Ceviche, Sushi, Café
+   Indicadores: Platos, ingredientes visibles, comida preparada
 
-📌 LUGAR - Identifica por arquitectura/geografía:
-   • MACHU PICCHU: Ruinas incas en montañas.
-   • TORRE EIFFEL: Estructura metálica en París.
-   • GRAN CAÑÓN: Formación rocosa con estratos.
+🦁 ANIMAL: Cualquier ser vivo del reino animal
+   Ejemplos: León, Perro, Águila, Delfín, Mariposa
+   Indicadores: Ojos, pelaje/plumas/escamas, movimiento
 
-🎯 PASO 2 - CLASIFICACIÓN Y STATS:
-Una vez identificado, asigna la CATEGORÍA y valores según esta TABLA OBLIGATORIA:
+🏛️ LUGAR: Monumentos, ciudades, paisajes, edificios
+   Ejemplos: Machu Picchu, Torre Eiffel, Gran Cañón
+   Indicadores: Arquitectura, geografía, construcciones
 
-┌─────────────────────────────────────────────────────────────┐
-│ SI ES COMIDA → CATEGORIA: COMIDA                            │
-├─────────────────────────────────────────────────────────────┤
-│ STATS (0-100):                                              │
-│ • Sabor: Qué tan delicioso es (popular = alto)             │
-│ • Picante: Nivel de ají/chile (sin picante = 0)            │
-│ • Salud: Valor nutricional (frito/chatarra = 5-15)         │
-│ • Rareza: Qué tan único/difícil de encontrar               │
-│                                                             │
-│ EVOS: SOLO otras comidas similares                         │
-│ Ejemplos válidos: Salchipapa → [Papas fritas, Hot dog, Choripán] │
-│ ❌ PROHIBIDO: Incluir animales o lugares                   │
-└─────────────────────────────────────────────────────────────┘
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 FASE 2: ASIGNACIÓN DE ESTADÍSTICAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-┌─────────────────────────────────────────────────────────────┐
-│ SI ES ANIMAL → CATEGORIA: ANIMAL                            │
-├─────────────────────────────────────────────────────────────┤
-│ STATS (0-100):                                              │
-│ • Fuerza: Poder físico/capacidad de carga                  │
-│ • Agilidad: Velocidad y reflejos                           │
-│ • Peligro: Amenaza para humanos                            │
-│ • Rareza: Estado de conservación (extinto = 100)           │
-│                                                             │
-│ EVOS: SOLO animales de la misma familia/orden              │
-│ Ejemplos válidos: León → [Tigre, Jaguar, Leopardo]        │
-│ ❌ PROHIBIDO: Incluir comidas o lugares                    │
-└─────────────────────────────────────────────────────────────┘
+IMPORTANTE: Los STATS cambian según la categoría detectada.
 
-┌─────────────────────────────────────────────────────────────┐
-│ SI ES LUGAR → CATEGORIA: LUGAR                              │
-├─────────────────────────────────────────────────────────────┤
-│ STATS (0-100):                                              │
-│ • Historia: Antigüedad y relevancia histórica              │
-│ • Belleza: Atractivo visual/turístico                      │
-│ • Cultura: Importancia cultural/religiosa                  │
-│ • Rareza: Exclusividad/dificultad de acceso                │
-│                                                             │
-│ EVOS: SOLO lugares similares geográfica o culturalmente    │
-│ Ejemplos válidos: Machu Picchu → [Chichén Itzá, Petra, Angkor Wat] │
-│ ❌ PROHIBIDO: Incluir comidas o animales                   │
-└─────────────────────────────────────────────────────────────┘
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ SI DETECTASTE: COMIDA                  ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+┃ STATS (valores 0-100):                 ┃
+┃ • Sabor: Qué tan delicioso es         ┃
+┃ • Picante: Nivel de ají/chile         ┃
+┃ • Salud: Valor nutricional            ┃
+┃   (Comida frita/chatarra = 5-15)      ┃
+┃ • Rareza: Dificultad para encontrar   ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-📋 FORMATO DE RESPUESTA OBLIGATORIO (copia exactamente esta estructura):
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ SI DETECTASTE: ANIMAL                  ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+┃ STATS (valores 0-100):                 ┃
+┃ • Fuerza: Poder físico                ┃
+┃ • Agilidad: Velocidad y reflejos      ┃
+┃ • Peligro: Amenaza para humanos       ┃
+┃ • Rareza: Estado de conservación      ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-NOMBRE: [Nombre exacto del elemento identificado]
-CATEGORIA: [Escribe COMIDA, ANIMAL o LUGAR]
-DESC: [Una frase de máximo 20 palabras describiendo qué es]
-HISTORIA: [Escribe exactamente 2 párrafos: párrafo 1 sobre origen/historia, párrafo 2 sobre importancia actual o datos curiosos. Cada párrafo debe tener 3-4 oraciones completas]
-STATS: [Número1, Número2, Número3, Número4]
-EVOS: [Variante1, Variante2, Variante3]
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ SI DETECTASTE: LUGAR                   ┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+┃ STATS (valores 0-100):                 ┃
+┃ • Historia: Antigüedad e importancia  ┃
+┃ • Belleza: Atractivo visual           ┃
+┃ • Cultura: Relevancia cultural        ┃
+┃ • Rareza: Exclusividad/acceso         ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-⚠️ REGLAS CRÍTICAS:
-1. NO repitas ninguna sección
-2. NO incluyas asteriscos, hashtags ni símbolos especiales
-3. Los números en STATS deben estar entre 0-100
-4. Las EVOS deben ser EXACTAMENTE 3 elementos del MISMO tipo
-5. Si la imagen es borrosa, usa tu mejor criterio pero mantén el formato
-6. NUNCA mezcles categorías en EVOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔄 FASE 3: VARIANTES (EVOLUCIONES)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Analiza la imagen ahora y responde:"""
+⚠️ REGLA CRÍTICA: Las variantes DEBEN ser SUSTANTIVOS del mismo tipo.
+
+✅ CORRECTO:
+• COMIDA: Salchipapa → Papas fritas, Hot dog, Choripán
+• ANIMAL: León → Tigre, Leopardo, Jaguar
+• LUGAR: Machu Picchu → Chichén Itzá, Petra, Angkor Wat
+
+❌ INCORRECTO:
+• NO uses adjetivos: "Fuerte", "Delicioso", "Antiguo"
+• NO mezcles categorías: Pizza → Perro, Torre Eiffel
+• NO uses frases: "Muy sabroso", "El más grande"
+
+Proporciona EXACTAMENTE 3 variantes como sustantivos simples.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 FORMATO DE RESPUESTA (COPIA EXACTO)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+NOMBRE: [Nombre del elemento]
+CATEGORIA: [Escribe solo: COMIDA, ANIMAL o LUGAR]
+DESC: [Una frase de máximo 15 palabras]
+HISTORIA: [Escribe 2 párrafos. Párrafo 1: Origen e historia. Párrafo 2: Importancia actual. Total: 100-150 palabras]
+STATS: [num1, num2, num3, num4]
+EVOS: [Sustantivo1, Sustantivo2, Sustantivo3]
+
+⚠️ PROHIBIDO:
+• Usar asteriscos *, hashtags #, corchetes []
+• Repetir secciones
+• Incluir explicaciones adicionales
+• Usar adjetivos en EVOS
+
+Analiza la imagen AHORA:"""
 
                 # ========================================
-                # Llamada a la IA
+                # Llamada a la IA con configuración óptima
                 # ========================================
                 chat = client.chat.completions.create(
                     messages=[{
@@ -179,92 +258,86 @@ Analiza la imagen ahora y responde:"""
                         ]
                     }],
                     model="meta-llama/llama-4-scout-17b-16e-instruct",
-                    temperature=0.05,  # Muy baja para máxima consistencia
-                    max_tokens=1000
+                    temperature=0.05,
+                    max_tokens=1200
                 )
                 
-                res = chat.choices[0].message.content
+                respuesta_cruda = chat.choices[0].message.content
 
                 # ========================================
-                # Extracción con limpieza avanzada
+                # EXTRACCIÓN SANITIZADA (UNA SOLA VEZ)
                 # ========================================
-                def extraer(tag, texto):
-                    # Busca el tag y extrae hasta el siguiente tag o fin de texto
-                    patron = rf"{tag}:\s*\**(.*?)(?=\n(?:NOMBRE|CATEGORIA|DESC|HISTORIA|STATS|EVOS):|$)"
-                    match = re.search(patron, texto, re.S | re.I)
-                    if match:
-                        contenido = match.group(1).strip()
-                        # Limpia asteriscos y símbolos
-                        contenido = re.sub(r'[*#_\[\]]', '', contenido)
-                        return contenido
-                    return "Dato no disponible"
-
-                nombre = extraer("NOMBRE", res)
-                cat = extraer("CATEGORIA", res).upper()
-                desc = extraer("DESC", res)
-                historia = extraer("HISTORIA", res)
-                stats_raw = extraer("STATS", res)
-                evos_raw = extraer("EVOS", res)
+                nombre = extraer_dato("NOMBRE", respuesta_cruda)
+                categoria = extraer_dato("CATEGORIA", respuesta_cruda).upper()
+                descripcion = extraer_dato("DESC", respuesta_cruda)
+                historia = extraer_dato("HISTORIA", respuesta_cruda)
+                stats_raw = extraer_dato("STATS", respuesta_cruda)
+                evos_raw = extraer_dato("EVOS", respuesta_cruda)
                 
-                # Extrae números de stats
-                nums = [int(n) for n in re.findall(r'\d+', stats_raw)][:4]
-                while len(nums) < 4: 
-                    nums.append(0)
-
-                # Limita valores a 0-100
-                nums = [min(100, max(0, n)) for n in nums]
+                # Procesar números de stats
+                numeros = [int(n) for n in re.findall(r'\d+', stats_raw)][:4]
+                while len(numeros) < 4: 
+                    numeros.append(0)
+                numeros = [min(100, max(0, n)) for n in numeros]
 
                 # ========================================
-                # Renderizado ÚNICO de información
+                # INTERRUPTOR DE ETIQUETAS (LABEL SWITCHER)
+                # ========================================
+                if "ANIMAL" in categoria:
+                    etiquetas = ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
+                elif "LUGAR" in categoria:
+                    etiquetas = ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
+                else:  # COMIDA por defecto
+                    categoria = "COMIDA"  # Forzar categoría si no está clara
+                    etiquetas = ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
+
+                # ========================================
+                # RENDERIZADO ÚNICO (SIN DUPLICADOS)
                 # ========================================
                 with col_info:
                     # Título
                     st.markdown(f"## 📋 {nombre}")
                     
                     # Categoría y descripción
-                    st.markdown(f"<div class='data-card'><p><b>CATEGORÍA:</b> {cat}</p><p>{desc}</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='data-card'><p><b>CATEGORÍA:</b> {categoria}</p><p>{descripcion}</p></div>", unsafe_allow_html=True)
                     
-                    # Historia
+                    # Historia con fondo
                     st.markdown("### 📖 Historia")
-                    st.markdown(f"<p style='color:black;'>{historia}</p>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='historia-box'><p>{historia}</p></div>", unsafe_allow_html=True)
                     
-                    # Determinar etiquetas según categoría
-                    if "ANIMAL" in cat:
-                        labels = ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
-                    elif "LUGAR" in cat:
-                        labels = ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
-                    else:  # COMIDA
-                        labels = ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
-
-                    # Stats con barras
+                    # Stats con etiquetas correctas
                     st.markdown("### 📊 Puntos Base")
                     c1, c2 = st.columns(2)
                     with c1:
-                        st.markdown(f"<p>{labels[0]}: {nums[0]}%</p>", unsafe_allow_html=True)
-                        st.progress(nums[0]/100)
-                        st.markdown(f"<p>{labels[1]}: {nums[1]}%</p>", unsafe_allow_html=True)
-                        st.progress(nums[1]/100)
+                        st.markdown(f"<p>{etiquetas[0]}: {numeros[0]}%</p>", unsafe_allow_html=True)
+                        st.progress(numeros[0]/100)
+                        st.markdown(f"<p>{etiquetas[1]}: {numeros[1]}%</p>", unsafe_allow_html=True)
+                        st.progress(numeros[1]/100)
                     with c2:
-                        st.markdown(f"<p>{labels[2]}: {nums[2]}%</p>", unsafe_allow_html=True)
-                        st.progress(nums[2]/100)
-                        st.markdown(f"<p>{labels[3]}: {nums[3]}%</p>", unsafe_allow_html=True)
-                        st.progress(nums[3]/100)
+                        st.markdown(f"<p>{etiquetas[2]}: {numeros[2]}%</p>", unsafe_allow_html=True)
+                        st.progress(numeros[2]/100)
+                        st.markdown(f"<p>{etiquetas[3]}: {numeros[3]}%</p>", unsafe_allow_html=True)
+                        st.progress(numeros[3]/100)
 
-                    # Variantes
+                    # Variantes filtradas (solo sustantivos)
                     st.markdown("### 🔄 Variantes Registradas")
-                    evos_lista = [e.strip() for e in evos_raw.split(",") if e.strip() and len(e.strip()) > 2]
-                    for evo in evos_lista[:3]:  # Máximo 3
-                        st.markdown(f"<span class='evo-tag'>{evo}</span>", unsafe_allow_html=True)
+                    variantes = [v.strip() for v in evos_raw.split(",") if v.strip() and len(v.strip()) > 2]
+                    for var in variantes[:3]:
+                        st.markdown(f"<span class='evo-tag'>{var}</span>", unsafe_allow_html=True)
 
                 # Audio
-                texto_audio = f"{nombre}. {desc}. {historia[:200]}"
-                texto_audio = re.sub(r'[*#_\[\]]', '', texto_audio)
+                texto_audio = f"{nombre}. {descripcion}. {historia[:180]}"
+                texto_audio = sanitizar_texto(texto_audio)
                 tts = gTTS(text=texto_audio, lang='es')
                 fp = io.BytesIO()
                 tts.write_to_fp(fp)
                 st.audio(fp)
+                
+                # Actualizar estado a completado
+                estado_placeholder.markdown("<div class='status-indicator'>✅ Escaneo completado</div>", unsafe_allow_html=True)
 
             except Exception as e:
-                st.error(f"⚠️ Error en el análisis: {str(e)}")
+                estado_placeholder.markdown("<div class='status-indicator'>❌ Error en escaneo</div>", unsafe_allow_html=True)
+                st.error(f"⚠️ Error: {str(e)}")
                 
     st.markdown("</div>", unsafe_allow_html=True)
