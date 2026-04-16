@@ -4,23 +4,41 @@ import PIL.Image
 from gtts import gTTS
 import os
 import re
-import time
+import requests # Necesario para la IA de respaldo
 
-# --- CONFIGURACIÓN ---
+# --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Turidex", page_icon="📸")
-st.title("📸 TURIDEX OFICIAL")
+st.title("📸 TURIDEX: Identificador Inteligente")
+st.write("Visión Multi-IA para viajeros")
 
-# --- CONEXIÓN SEGURA ---
+# --- CONEXIÓN A LAS IAS (Usando Secrets) ---
 try:
+    # IA Principal (Gemini)
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    # Probamos con 1.5-flash que es más rápido y tiene límites más amplios que el 2.5
-    model = genai.GenerativeModel('models/gemini-1.5-flash')
+    model_gemini = genai.GenerativeModel('models/gemini-1.5-flash')
+    
+    # IA de Respaldo (Hugging Face)
+    API_URL_HF = "https://api-inference.huggingface.co/models/calendari/food-image-classification"
+    headers_hf = {"Authorization": f"Bearer {st.secrets['HUGGINGFACE_API_KEY']}"}
 except:
-    st.error("Error de configuración. Revisa tus Secrets.")
+    st.error("Error crítico de configuración. Revisa tus Secrets de Streamlit.")
 
+# Funciones de utilidad
 def limpiar_texto(t):
     return re.sub(r'[*#_]', '', t)
 
+def consulta_huggingface(img_pil):
+    # Convierte la imagen PIL a bytes para enviarla por red
+    import io
+    img_bytes = io.BytesIO()
+    img_pil.save(img_bytes, format='JPEG')
+    img_bytes = img_bytes.getvalue()
+    
+    # Hace la consulta a Hugging Face
+    response = requests.post(API_URL_HF, headers=headers_hf, data=img_bytes)
+    return response.json()
+
+# --- INTERFAZ DE USUARIO ---
 archivo_subido = st.file_uploader("Sube una foto de comida o lugar...", type=["jpg", "png", "jpeg"])
 
 if archivo_subido is not None:
@@ -28,38 +46,59 @@ if archivo_subido is not None:
     st.image(imagen, use_container_width=True)
     
     if st.button("🔍 ANALIZAR CON TURIDEX"):
-        with st.status("🚀 Procesando con IA...", expanded=True) as status:
-            exito = False
-            for intento in range(3): # Intentará 3 veces automáticamente
-                try:
-                    prompt = """Identifica el objeto. Responde estrictamente:
-                    NOMBRE: [Nombre]
-                    HISTORIA: [Historia breve]
-                    DATO: [Dato curioso]"""
-                    
-                    response = model.generate_content([prompt, imagen])
-                    texto_full = response.text
-                    exito = True
-                    break 
-                except Exception as e:
-                    if "429" in str(e):
-                        st.write(f"⚠️ Servidor ocupado (Intento {intento+1}/3)... esperando...")
-                        time.sleep(5) # Espera 5 segundos entre intentos
-                    else:
-                        st.error(f"Error: {e}")
-                        break
+        with st.status("🚀 Analizando con Multi-Visión...", expanded=True) as status:
+            texto_full = ""
+            nombre_solo = "comida"
+            metodo_ia = ""
 
-            if exito:
-                status.update(label="✅ ¡Identificado!", state="complete", expanded=False)
+            # INTENTO 1: Usar Gemini (La mejor opción)
+            try:
+                status.write("📡 Consultando IA Principal (Google)...")
+                prompt = """Identifica el objeto. Responde estrictamente:
+                NOMBRE: [Nombre]
+                HISTORIA: [Historia breve y curiosa]
+                DATO: [Dato curioso]"""
+                response = model_gemini.generate_content([prompt, imagen])
+                texto_full = response.text
+                metodo_ia = "Google Gemini"
                 
                 # Extraer nombre
                 lineas = texto_full.split('\n')
-                nombre_solo = "comida"
                 for l in lineas:
                     if "NOMBRE:" in l:
                         nombre_solo = l.replace("NOMBRE:", "").strip()
+
+            # INTENTO 2: Si Gemini falla por saturación (Error 429), usar Hugging Face
+            except Exception as e:
+                if "429" in str(e) or "ResourceExhausted" in str(e):
+                    status.write("⚠️ Google saturado. Activando IA de Respaldo (Open Source)...")
+                    try:
+                        resultado_hf = consulta_huggingface(imagen)
+                        # Hugging Face suele devolver una lista ordenada por probabilidad
+                        # Tomamos el primer resultado
+                        if resultado_hf and 'label' in resultado_hf[0]:
+                            nombre_solo = resultado_hf[0]['label']
+                            # Como HF solo da el nombre, inventamos un texto genérico profesional
+                            texto_full = f"""
+                            NOMBRE: {nombre_solo.title()}
+                            HISTORIA: He identificado este plato usando mi IA de respaldo. Es una delicia muy popular.
+                            DATO: ¡Busca lugares cercanos para probarlo!
+                            """
+                            metodo_ia = "Hugging Face (Open Source)"
+                        else:
+                            texto_full = "No pude identificarlo con ninguna IA."
+                    except:
+                        texto_full = "Error total en ambas IAs."
+                else:
+                    st.error(f"Error inesperado: {e}")
+                    status.update(label="❌ Error", state="error")
+                    st.stop()
+
+            # --- MOSTRAR RESULTADOS ---
+            if texto_full and texto_full != "No pude identificarlo con ninguna IA.":
+                status.update(label=f"✅ ¡Identificado por {metodo_ia}!", state="complete", expanded=False)
                 
-                st.subheader(f"📍 {nombre_solo}")
+                st.subheader(f"📍 {nombre_solo.title()}")
                 st.write(texto_full)
                 
                 # Mapa
@@ -73,7 +112,7 @@ if archivo_subido is not None:
                 tts.save("voz.mp3")
                 st.audio("voz.mp3")
             else:
-                status.update(label="❌ Error de conexión", state="error")
-                st.warning("Google está saturado. Por favor, intenta subir la foto nuevamente en 1 minuto.")
+                status.update(label="❌ Fallo en la identificación", state="error")
+                st.warning("No pude identificar la imagen por saturación en todos los servidores gratuitos.")
 
-st.info("💡 Consejo: Si sale error, espera unos segundos. La versión gratuita tiene límites de velocidad.")
+st.info("💡 Consejo: Esta versión usa Multi-IA para evitar los límites de velocidad gratuitos.")
