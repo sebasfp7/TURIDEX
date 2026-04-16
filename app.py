@@ -8,7 +8,6 @@ import json
 
 st.set_page_config(page_title="TURIDEX", layout="wide")
 
-# ====================== SESSION STATE ======================
 if 'current_item' not in st.session_state: st.session_state.current_item = None
 if 'current_category' not in st.session_state: st.session_state.current_category = None
 if 'log' not in st.session_state: st.session_state.log = []
@@ -47,26 +46,26 @@ def resize_image(image_file):
     img.save(buffer, format="JPEG", quality=85, optimize=True)
     return buffer.getvalue()
 
-def get_prompt(is_image=True, item_name=None, category=None):
-    if is_image:
-        return """Analiza la imagen y responde **ÚNICAMENTE** con un JSON válido. No escribas nada más.
+def get_prompt(item_name=None):
+    if item_name is None:
+        return """Analiza la imagen y responde **SOLO** con un JSON válido:
 
 {
-  "nombre": "Nombre claro",
+  "nombre": "Nombre del elemento",
   "categoria": "ANIMAL",
-  "desc": "Descripción corta máximo 15 palabras",
+  "desc": "Descripción corta",
   "historia": "Dos párrafos cortos",
-  "stats": [85, 75, 70, 60],
+  "stats": [80, 75, 70, 65],
   "evos": ["Nombre1", "Nombre2", "Nombre3"]
 }
 
-Categorías permitidas: COMIDA, ANIMAL, LUGAR, ARTE"""
+Usa categorías: COMIDA, ANIMAL, LUGAR, ARTE."""
     else:
-        return f"""Responde **solo** con un JSON válido:
+        return f"""Responde solo con un JSON válido sobre "{item_name}":
 
 {{
   "nombre": "{item_name}",
-  "categoria": "{category}",
+  "categoria": "ANIMAL",
   "desc": "descripción corta",
   "historia": "dos párrafos cortos",
   "stats": [80, 75, 70, 65],
@@ -80,20 +79,19 @@ def parse_json(text):
             return json.loads(match.group(1))
     except:
         pass
-    return {"nombre": "Elemento", "categoria": "ANIMAL", "desc": "No se pudo analizar", 
-            "historia": "Error en el procesamiento de la respuesta.", "stats": [60,60,60,60], "evos": ["Var1","Var2","Var3"]}
+    return {"nombre": "Elemento", "categoria": "ANIMAL", "desc": "Error de análisis", 
+            "historia": "No se pudo procesar correctamente.", "stats": [60,60,60,60], "evos": ["Var1","Var2","Var3"]}
 
 def get_labels(category):
     cat = str(category).upper()
     if "ANIMAL" in cat: return ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
-    elif any(x in cat for x in ["LUGAR", "ARTE", "PERSONA"]): return ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
+    elif any(x in cat for x in ["LUGAR", "ARTE"]): return ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
     else: return ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
 
-# ====================== INTERFAZ ======================
 with st.container():
     st.markdown("<div class='frame'>", unsafe_allow_html=True)
 
-    if st.button("🔄 Reiniciar TURIDEX"):
+    if st.button("🔄 Reiniciar"):
         st.session_state.clear()
         st.rerun()
 
@@ -101,58 +99,51 @@ with st.container():
 
     if st.session_state.log:
         st.markdown("**Logs:**")
-        for log in st.session_state.log[-10:]:
+        for log in st.session_state.log[-8:]:
             st.markdown(f"<div class='log-box'>{log}</div>", unsafe_allow_html=True)
 
     col1, col2 = st.columns([1, 2])
 
     with col1:
-        archivo = st.file_uploader("Carga una imagen (JPG, PNG)", type=["jpg","png","jpeg"])
+        archivo = st.file_uploader("Carga una imagen", type=["jpg","png","jpeg"])
         if archivo:
             st.image(archivo, use_container_width=True)
             if st.button("🔍 ESCANEAR OBJETIVO", type="primary", use_container_width=True):
-                st.session_state.log = ["1. Imagen cargada correctamente"]
-                st.session_state.current_item = "Procesando imagen..."
+                st.session_state.log = ["1. Imagen cargada"]
+                st.session_state.current_item = "Procesando..."
                 st.rerun()
 
     with col2:
-        if st.session_state.current_item == "Procesando imagen...":
+        if st.session_state.current_item == "Procesando...":
             try:
                 add_log = lambda x: st.session_state.log.append(x)
-                add_log("2. Optimizando imagen (800px, calidad 85%)...")
+                add_log("2. Optimizando imagen...")
                 bytes_opt = resize_image(archivo)
-                add_log("3. Codificando imagen...")
-                b64 = base64.b64encode(bytes_opt).decode()
-                add_log("4. Enviando a Groq (llama-3.3-70b-versatile)...")
+                add_log("3. Llamando a modelo llama-3.1-70b-versatile...")
                 
-                prompt = get_prompt(is_image=True)
+                prompt = get_prompt()
                 response = client.chat.completions.create(
-                    messages=[{"role": "user", "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
-                    ]}],
-                    model="llama-3.3-70b-versatile",   # ← Modelo actual estable
+                    messages=[{"role": "user", "content": prompt}],
+                    model="llama-3.1-70b-versatile",
                     temperature=0.1,
-                    max_tokens=1000
+                    max_tokens=800
                 )
-                add_log("5. Respuesta recibida")
-                add_log("6. Procesando JSON...")
-                
+                add_log("4. Respuesta recibida")
                 data = parse_json(response.choices[0].message.content)
                 
-                st.session_state.current_item = data.get("nombre", "Elemento sin nombre")
+                st.session_state.current_item = data.get("nombre", "Elemento")
                 st.session_state.current_category = data.get("categoria", "ANIMAL")
-                add_log(f"✅ COMPLETADO → {st.session_state.current_item}")
+                add_log(f"✅ COMPLETADO: {st.session_state.current_item}")
                 st.rerun()
-                
             except Exception as e:
                 st.session_state.log.append(f"❌ ERROR: {str(e)}")
                 st.error(f"Error: {str(e)}")
 
-    # Mostrar resultado
-    if st.session_state.current_item and st.session_state.current_item != "Procesando imagen...":
+    if st.session_state.current_item and st.session_state.current_item not in ["Procesando...", "Procesando imagen..."]:
+        data = {"nombre": st.session_state.current_item, "categoria": st.session_state.current_category}
         with col2:
-            st.success(f"**{st.session_state.current_item}**")
-            st.info("Análisis completado. En próximas versiones añadiremos stats y variantes funcionales.")
+            st.success(f"**{data['nombre']}**")
+            st.write(f"**Categoría:** {data['categoria']}")
+            st.info("Versión básica funcionando. Podemos seguir mejorando stats y variantes.")
 
     st.markdown("</div>", unsafe_allow_html=True)
