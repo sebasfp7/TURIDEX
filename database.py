@@ -1,23 +1,40 @@
-# database.py
-TURIDEX_PEDIA = {
-    "cerdo asado": {
-        "nombre": "Cerdo Asado Tradicional",
-        "historia": """El cerdo asado es uno de los pilares de la gastronomía festiva. 
-        Su origen se remonta a las antiguas técnicas de cocción lenta sobre brasas, 
-        perfeccionadas durante siglos en las zonas rurales. 
-        En Iberoamérica, el asado de cerdo no es solo comida, es un evento social 
-        que reúne a familias enteras. La técnica del 'lechón' requiere una paciencia 
-        maestra, donde el calor indirecto transforma la piel en una capa crujiente 
-        y dorada, mientras la carne conserva todos sus jugos naturales... (puedes seguir escribiendo aquí todo lo que quieras)""",
-        "dato": "El récord del cerdo asado más grande del mundo se rompió en 2024, pesando más de 300 kilos.",
-        "mapa": "restaurantes+de+asados+y+parrilladas"
-    },
-    "pizza": {
-        "nombre": "Pizza Napolitana Tradicional",
-        "historia": """La pizza es, quizás, el plato más reconocido del mundo. 
-        Aunque panes planos similares existían en Egipto y Grecia, la pizza moderna 
-        nació en los barrios pobres de Nápoles en el siglo XVIII... (aquí puedes poner 3 o 4 párrafos largos)""",
-        "dato": "La verdadera pizza napolitana debe cocinarse en un horno de leña a 485°C por no más de 90 segundos.",
-        "mapa": "pizzerias+italianas+cerca"
-    }
-}
+import pandas as pd
+
+def calcular_ratios_financieros(datos_extraidos):
+    """
+    Toma un diccionario de datos extraídos por la IA y calcula ratios reales.
+    """
+    try:
+        # Extraer valores base del diccionario generado por la IA
+        ingresos = float(datos_extraidos.get("ingresos_totales", 0))
+        costos = float(datos_extraidos.get("costo_ventas", 0))
+        gastos_op = float(datos_extraidos.get("gastos_operativos", 0))
+        activos = float(datos_extraidos.get("activos_totales", 0))
+        pasivos = float(datos_extraidos.get("pasivos_totales", 0))
+        
+        # Cálculos de Ratios (Lógica Humana Inmune a Alucinaciones)
+        utilidad_bruta = ingresos - costos
+        margen_bruto = (utilidad_bruta / ingresos * 100) if ingresos > 0 else 0
+        
+        ebitda = ingresos - costos - gastos_op
+        margen_ebitda = (ebitda / ingresos * 100) if ingresos > 0 else 0
+        
+        ratio_solvencia = activos / pasivos if pasivos > 0 else 0
+        capital_trabajo = activos - pasivos
+
+        # Interpretación automática
+        salud = "Estable"
+        if margen_ebitda < 10 or ratio_solvencia < 1.2:
+            salud = "Crítica"
+        elif margen_ebitda > 25 and ratio_solvencia > 2:
+            salud = "Excelente"
+
+        return {
+            "margen_bruto": round(margen_bruto, 2),
+            "margen_ebitda": round(margen_ebitda, 2),
+            "ratio_solvencia": round(ratio_solvencia, 2),
+            "capital_trabajo": round(capital_trabajo, 2),
+            "salud_general": salud
+        }
+    except Exception as e:
+        return {"error": f"Fallo en cálculo: {str(e)}"}
