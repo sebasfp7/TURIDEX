@@ -1,4 +1,4 @@
-google-generativeai
+streamlit
 gTTS
 Pillow
-requests
+imagehash
