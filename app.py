@@ -17,24 +17,28 @@ st.markdown("""
         background-position: center;
         background-attachment: fixed;
     }
+    /* Sombra de texto para máxima legibilidad en CUALQUIER fondo */
+    .legible-text {
+        color: white !important;
+        text-shadow: 2px 2px 4px #000000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+    }
     .pokedex-title {
         font-family: 'Courier New', monospace;
         color: #FFCC00;
         text-align: center;
         text-shadow: 3px 3px 0 #000;
-        font-size: 3em;
+        font-size: 3.5em;
         padding: 10px;
     }
     .pokedex-frame {
-        background-color: #DC0A2D;
+        background-color: rgba(220, 10, 45, 0.95); /* Rojo un poco más sólido */
         border: 8px solid #8B0000;
         border-radius: 15px;
         padding: 25px;
         box-shadow: 10px 10px 0px rgba(0,0,0,0.4);
-        color: white;
     }
     .img-container {
-        background-color: #dedede;
+        background-color: #f0f0f0;
         border: 4px solid #585858;
         border-radius: 10px;
         padding: 10px;
@@ -43,24 +47,30 @@ st.markdown("""
         text-align: center;
     }
     .data-card {
-        background-color: #30A7D7;
+        background-color: rgba(48, 167, 215, 0.9);
         color: white;
         border-radius: 10px;
         padding: 15px;
         margin: 15px 0;
         border: 2px solid #1b7ba1;
         font-weight: bold;
+        text-shadow: 1px 1px 2px #000;
     }
     .evo-card {
-        background-color: #444;
+        background-color: #333;
         border: 2px solid #FFCC00;
         border-radius: 10px;
         padding: 10px;
         text-align: center;
         color: white;
         font-weight: bold;
+        text-shadow: 1px 1px 2px #000;
     }
-    h2, h3, p { color: white !important; }
+    /* Forzar que todos los textos dentro de la pokedex sean legibles */
+    .stMarkdown p, .stMarkdown h2, .stMarkdown h3 {
+        color: white !important;
+        text-shadow: 1px 1px 3px #000;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -75,7 +85,7 @@ def encode_image(image_file):
     return base64.b64encode(image_file.getvalue()).decode('utf-8')
 
 st.markdown("<div class='pokedex-frame'>", unsafe_allow_html=True)
-archivo = st.file_uploader("📸 Escaneando entorno...", type=["jpg", "png", "jpeg"])
+archivo = st.file_uploader("📸 Escaneando objetivo...", type=["jpg", "png", "jpeg"])
 
 if archivo:
     st.markdown("<div class='img-container'>", unsafe_allow_html=True)
@@ -86,17 +96,17 @@ if archivo:
         with st.spinner("⏳ Analizando con Llama 4 Scout..."):
             try:
                 base64_image = encode_image(archivo)
-                prompt = """Actúa como una Pokédex de última generación. 
-                Analiza la imagen con lógica absoluta: si es una pizza margarita, el picante es 0. 
-                Responde en ESPAÑOL con este formato:
+                # Prompt con instrucciones nutricionales estrictas
+                prompt = """Actúa como una Pokédex. Analiza la imagen.
+                CRÍTICO: Sé realista y estricto con la salud (si es pizza/comida rápida, salud debe ser MENOR a 30).
+                Responde en ESPAÑOL:
                 NOMBRE: [Nombre]
                 TIPO: [Categoría]
                 DESC: [Descripción breve]
-                HISTORIA: [Dos párrafos culturales]
-                STATS: [Sabor, Picante, Salud, Rareza - 4 números del 0 al 100]
-                EVOS: [3 versiones alternativas separadas por comas]"""
+                HISTORIA: [Dos párrafos]
+                STATS: [Sabor, Picante, Salud, Rareza - 4 números 0-100]
+                EVOS: [3 versiones alternativas]"""
 
-                # MODELO SELECCIONADO POR EL USUARIO
                 chat = client.chat.completions.create(
                     messages=[{"role": "user", "content": [
                         {"type": "text", "text": prompt},
@@ -108,14 +118,13 @@ if archivo:
                 
                 res = chat.choices[0].message.content
 
-                # --- EXTRACCIÓN ROBUSTA ---
                 def extraer(clave, texto):
                     try:
                         parte = texto.split(clave + ":")[1]
                         for k in ["NOMBRE", "TIPO", "DESC", "HISTORIA", "STATS", "EVOS"]:
                             if k + ":" in parte: parte = parte.split(k + ":")[0]
                         return parte.strip()
-                    except: return "No detectado"
+                    except: return "---"
 
                 nombre = extraer("NOMBRE", res)
                 tipo = extraer("TIPO", res)
@@ -124,37 +133,36 @@ if archivo:
                 stats_raw = extraer("STATS", res)
                 evos_raw = extraer("EVOS", res)
 
-                # Procesamiento de Stats
-                try:
-                    nums = [int(n.strip()) for n in stats_raw.replace('[','').replace(']','').split(",")]
-                except:
-                    nums = [50, 0, 50, 10]
+                try: nums = [int(n.strip()) for n in stats_raw.replace('[','').replace(']','').split(",")]
+                except: nums = [50, 0, 20, 10]
+                evos = evos_raw.split(",") if "," in evos_raw else ["Normal", "Especial", "Premium"]
 
-                # Procesamiento de Presentaciones
-                evos = evos_raw.split(",") if "," in evos_raw else ["Estándar", "Clásica", "Gourmet"]
-
-                # --- MOSTRAR RESULTADOS ---
-                st.markdown(f"## 📋 {nombre}")
+                # --- DISPLAY MEJORADO ---
+                st.markdown(f"<h2 class='legible-text'>📋 {nombre}</h2>", unsafe_allow_html=True)
                 st.markdown(f"<div class='data-card'>TIPO: {tipo}<br><i>{desc}</i></div>", unsafe_allow_html=True)
-                st.write(historia)
+                
+                st.markdown(f"<p class='legible-text'>{historia}</p>", unsafe_allow_html=True)
 
-                st.subheader("📊 Puntos Base (Llama 4 Logic)")
+                st.markdown("<h3 class='legible-text'>📊 Puntos Base</h3>", unsafe_allow_html=True)
                 c1, c2 = st.columns(2)
                 labels = ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
                 with c1:
-                    st.write(f"{labels[0]}: {nums[0]}%"); st.progress(min(nums[0]/100, 1.0))
-                    st.write(f"{labels[1]}: {nums[1]}%"); st.progress(min(nums[1]/100, 1.0))
+                    st.write(f"**{labels[0]}: {nums[0]}%**")
+                    st.progress(min(nums[0]/100, 1.0))
+                    st.write(f"**{labels[1]}: {nums[1]}%**")
+                    st.progress(min(nums[1]/100, 1.0))
                 with c2:
-                    st.write(f"{labels[2]}: {nums[2]}%"); st.progress(min(nums[2]/100, 1.0))
-                    st.write(f"{labels[3]}: {nums[3]}%"); st.progress(min(nums[3]/100, 1.0))
+                    st.write(f"**{labels[2]}: {nums[2]}%**")
+                    st.progress(min(nums[2]/100, 1.0))
+                    st.write(f"**{labels[3]}: {nums[3]}%**")
+                    st.progress(min(nums[3]/100, 1.0))
 
-                st.markdown("### 🔄 Otras Presentaciones")
+                st.markdown("<h3 class='legible-text'>🔄 Otras Presentaciones</h3>", unsafe_allow_html=True)
                 ec = st.columns(3)
                 for i, col in enumerate(ec):
                     if i < len(evos):
                         with col: st.markdown(f"<div class='evo-card'>{evos[i].strip()}</div>", unsafe_allow_html=True)
 
-                # Audio automático
                 audio_text = f"{nombre}. {tipo}. {desc}. {historia}"
                 tts = gTTS(text=re.sub(r'[*#_]', '', audio_text), lang='es')
                 fp = io.BytesIO()
@@ -162,7 +170,6 @@ if archivo:
                 st.audio(fp)
 
             except Exception as e:
-                st.error(f"Error con el modelo Scout: {e}")
-                st.info("💡 Si el modelo no está disponible, verifica el nombre exacto en tu consola de Groq.")
+                st.error(f"Error: {e}")
 
 st.markdown("</div>", unsafe_allow_html=True)
