@@ -12,117 +12,94 @@ from gtts import gTTS
 import random
 
 # ──────────────────────────────────────────────────────────────────────────
-# PASO 1: FILTRO DE REALIDAD (LÓGICA PROGRAMÁTICA)
+# CONFIGURACIÓN DE PÁGINA Y ESTILOS
 # ──────────────────────────────────────────────────────────────────────────
+st.set_page_config(page_title="TURIDEX", layout="wide")
 
+st.markdown("""
+<style>
+    .stApp {
+        background-image: url('https://vignette.wikia.nocookie.net/es.pokemon/images/c/c1/Mapa_de_Kanto_GSC.png/revision/latest?cb=20191215132219');
+        background-size: cover; 
+        background-attachment: fixed;
+    }
+    .frame {
+        background: rgba(255,255,255,0.92); 
+        backdrop-filter: blur(12px);
+        border: 4px solid #DC0A2D; 
+        border-radius: 20px; 
+        padding: 25px;
+    }
+    .title {color: #FFDE00 !important; font-size: 3.8em; text-align:center; text-shadow: 3px 3px #3B4CCA;}
+    .header {background:#000; color:#0F0; padding:12px; border-radius:8px; text-align:center; font-family:monospace; margin-bottom: 20px;}
+    .log-box {background:#111; color:#0F0; padding:6px; border-radius:5px; font-family:monospace; font-size:0.85em; margin:3px 0;}
+    .data-card, .historia-box {background:rgba(255,255,255,0.95); padding:18px; border-radius:10px; margin:12px 0; border-left: 6px solid #DC0A2D;}
+    .variant-btn {background:linear-gradient(135deg,#FFCC00,#FFEB3B) !important; color:black !important; font-weight:bold !important; border:2px solid black !important;}
+</style>
+""", unsafe_allow_html=True)
+
+# ──────────────────────────────────────────────────────────────────────────
+# LÓGICA DEL FILTRO DE REALIDAD (STATS PROGRAMÁTICOS)
+# ──────────────────────────────────────────────────────────────────────────
 def calcular_stats_realistas(nombre, categoria, desc=""):
-    """
-    SOBREESCRIBE los stats inventados por la IA con valores basados en REGLAS PROGRAMÁTICAS.
-    """
     nombre_lower = (nombre + " " + desc).lower()
     cat = str(categoria).upper()
     
     # === CATEGORÍA: COMIDA [Sabor, Picante, Salud, Rareza] ===
     if "COMIDA" in cat:
-        sabor, picante, salud, rareza = 65, 15, 50, 35
-        
-        # Sabor
-        if any(x in nombre_lower for x in ["salchipapa", "bandeja paisa", "hamburguesa", "pizza", "sushi", "taco", "brownie"]):
-            sabor = random.randint(88, 98)
-        
-        # Picante
-        if any(x in nombre_lower for x in ["habanero", "ghost pepper", "carolina reaper"]):
-            picante = 99
-        elif any(x in nombre_lower for x in ["ají", "picante", "chile", "jalapeño", "wasabi"]):
-            picante = random.randint(70, 90)
-        
-        # Salud (Evaluación Nutricional Real)
-        if any(x in nombre_lower for x in ["ensalada", "fruta", "quinoa", "vapor", "plancha"]):
+        sabor, picante, salud, rareza = 65, 10, 50, 30
+        if any(x in nombre_lower for x in ["salchipapa", "hamburguesa", "pizza", "sushi", "bandeja paisa", "taco", "postre"]):
+            sabor = random.randint(85, 98)
+        if any(x in nombre_lower for x in ["ají", "picante", "chile", "habanero", "wasabi"]):
+            picante = random.randint(75, 99)
+        if any(x in nombre_lower for x in ["ensalada", "fruta", "quinoa", "vapor", "poke"]):
             salud = random.randint(80, 95)
-        elif any(x in nombre_lower for x in ["salchipapa", "frito", "hamburguesa", "pizza", "chatarra"]):
-            salud = random.randint(5, 15)
-        elif any(x in nombre_lower for x in ["torta", "pastel", "dulce", "azúcar"]):
-            salud = random.randint(10, 25)
-            
-        # Rareza
-        if any(x in nombre_lower for x in ["trufa", "kobe", "caviar", "azafrán"]):
-            rareza = 95
-        elif any(x in nombre_lower for x in ["arroz", "pan", "huevo", "arepa"]):
-            rareza = 15
-            
+        elif any(x in nombre_lower for x in ["salchipapa", "frito", "hamburguesa", "pizza", "donut", "gaseosa"]):
+            salud = random.randint(5, 18)
+        if any(x in nombre_lower for x in ["trufa", "kobe", "caviar"]): rareza = 95
+        elif any(x in nombre_lower for x in ["hamburguesa", "perro caliente", "arroz"]): rareza = 15
         return [sabor, picante, salud, rareza]
 
     # === CATEGORÍA: ANIMAL [Fuerza, Agilidad, Peligro, Rareza] ===
     elif "ANIMAL" in cat:
-        fuerza, agilidad, peligro, rareza = 50, 50, 50, 40
-        
-        # Depredadores Grandes
-        if any(x in nombre_lower for x in ["león", "tigre", "oso", "tiburón", "orca", "jaguar"]):
-            fuerza, agilidad, peligro = random.randint(85, 95), random.randint(70, 85), random.randint(90, 100)
-        # Insectos/Pequeños
-        elif any(x in nombre_lower for x in ["mosca", "mosquito", "hormiga", "abeja"]):
-            fuerza = random.randint(1, 5)
-            agilidad = random.randint(70, 95)
-            peligro = 30 if "abeja" in nombre_lower or "mosquito" in nombre_lower else 5
-        # Domésticos
-        elif any(x in nombre_lower for x in ["perro", "gato", "hamster", "conejo"]):
-            fuerza, peligro = random.randint(20, 40), random.randint(5, 20)
-            agilidad = random.randint(60, 85)
-            
+        fuerza, agilidad, peligro, rareza = 50, 50, 30, 40
+        if any(x in nombre_lower for x in ["elefante", "rinoceronte", "oso", "gorila"]): 
+            fuerza, peligro = random.randint(90, 98), random.randint(70, 85)
+        elif any(x in nombre_lower for x in ["león", "tigre", "tiburón", "cocodrilo", "jaguar"]): 
+            fuerza, peligro = random.randint(85, 95), random.randint(90, 100)
+        if any(x in nombre_lower for x in ["guepardo", "águila", "halcón", "colibrí"]): agilidad = 98
+        if any(x in nombre_lower for x in ["conejo", "hamster", "vaca", "tortuga", "koala"]): peligro = 5
+        if any(x in nombre_lower for x in ["axolotl", "ornitorrinco", "narval"]): rareza = 90
+        elif any(x in nombre_lower for x in ["perro", "gato", "paloma"]): rareza = 10
         return [fuerza, agilidad, peligro, rareza]
 
     # === CATEGORÍA: LUGAR / ARTE [Historia, Belleza, Cultura, Rareza] ===
     else:
-        historia, belleza, cultura, rareza = 60, 70, 60, 50
-        
-        # Maravillas o Sitios UNESCO
-        if any(x in nombre_lower for x in ["machu picchu", "pirámide", "coliseo", "muralla", "torre eiffel", "cartagena"]):
-            historia, cultura, rareza = random.randint(90, 100), random.randint(85, 98), random.randint(80, 95)
-        # Museos/Arte famoso
-        elif any(x in nombre_lower for x in ["louvre", "mona lisa", "guernica", "botero"]):
-            historia, belleza, cultura = random.randint(80, 95), random.randint(90, 100), random.randint(90, 100)
-            
+        historia, belleza, cultura, rareza = 60, 65, 60, 45
+        iconos = ["eiffel", "coliseo", "machu picchu", "taj mahal", "mona lisa", "reloj", "libertad", "guernica", "pirámide"]
+        for i in iconos:
+            if i in nombre_lower:
+                historia, belleza, cultura, rareza = 96, 94, 95, 88
+                break
+        if any(x in nombre_lower for x in ["parque", "plaza", "calle", "centro comercial", "casa"]):
+            rareza, belleza = 15, 45
         return [historia, belleza, cultura, rareza]
 
 # ──────────────────────────────────────────────────────────────────────────
-# CONFIGURACIÓN Y SESIÓN
+# UTILIDADES Y ESTADO DE SESIÓN
 # ──────────────────────────────────────────────────────────────────────────
-
-st.set_page_config(page_title="TURIDEX", layout="wide")
 SELECTED_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
-
-# Inicializar estados
-for key in ['current_item', 'current_category', 'current_data', 'last_image_bytes', 
-            'original_image', 'current_image', 'current_audio', 'needs_analysis', 
-            'source', 'log', 'last_request_time', 'request_count_today']:
-    if key not in st.session_state:
-        if key == 'log': st.session_state[key] = []
-        elif key in ['request_count_today', 'last_request_time']: st.session_state[key] = 0
-        elif key == 'needs_analysis': st.session_state[key] = False
-        else: st.session_state[key] = None
-
-# Estilos CSS
-st.markdown("""
-<style>
-    .stApp {background-image: url('https://vignette.wikia.nocookie.net/es.pokemon/images/c/c1/Mapa_de_Kanto_GSC.png/revision/latest?cb=20191215132219');
-            background-size: cover; background-attachment: fixed;}
-    .frame {background: rgba(255,255,255,0.92); backdrop-filter: blur(12px);
-            border: 4px solid #DC0A2D; border-radius: 20px; padding: 25px;}
-    .title {color: #FFDE00 !important; font-size: 3.8em; text-align:center; text-shadow: 3px 3px #3B4CCA;}
-    .header {background:#000; color:#0F0; padding:12px; border-radius:8px; text-align:center; font-family:monospace;}
-    .log-box {background:#111; color:#0F0; padding:5px; border-radius:5px; font-family:monospace; font-size:0.8em; margin:2px 0;}
-    .historia-box {background:white; padding:15px; border-radius:10px; border-left: 5px solid #DC0A2D; line-height:1.6;}
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown("<h1 class='title'>⚡ TURIDEX ⚡</h1>", unsafe_allow_html=True)
-
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
+for key in ['current_item', 'current_category', 'current_data', 'last_image_bytes', 
+            'original_image', 'current_image', 'current_audio', 'needs_analysis', 
+            'source', 'log', 'last_request_time']:
+    if key not in st.session_state:
+        st.session_state[key] = [] if key == 'log' else None
+
 def add_log(msg):
-    timestamp = time.strftime("%H:%M:%S")
-    st.session_state.log.append(f"[{timestamp}] {msg}")
-    if len(st.session_state.log) > 10: st.session_state.log.pop(0)
+    st.session_state.log.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
+    if len(st.session_state.log) > 12: st.session_state.log.pop(0)
 
 def parse_json(text):
     try:
@@ -133,14 +110,6 @@ def parse_json(text):
         if match: return json.loads(match.group(1))
     return None
 
-def resize_image(image_file):
-    img = Image.open(image_file)
-    if img.mode in ("RGBA", "P"): img = img.convert("RGB")
-    img.thumbnail((768, 768))
-    buffer = io.BytesIO()
-    img.save(buffer, format="JPEG", quality=85)
-    return buffer.getvalue()
-
 def generate_image(name):
     try:
         url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(f'{name}, realistic, high quality, national geographic style')}?width=700&height=500&nologo=true"
@@ -150,8 +119,10 @@ def generate_image(name):
     return None
 
 # ──────────────────────────────────────────────────────────────────────────
-# INTERFAZ Y LÓGICA PRINCIPAL
+# INTERFAZ PRINCIPAL
 # ──────────────────────────────────────────────────────────────────────────
+st.markdown("<h1 class='title'>⚡ TURIDEX ⚡</h1>", unsafe_allow_html=True)
+st.markdown(f"<div class='header'>📡 SISTEMA ACTIVO | MODELO: {SELECTED_MODEL}</div>", unsafe_allow_html=True)
 
 with st.container():
     st.markdown("<div class='frame'>", unsafe_allow_html=True)
@@ -161,84 +132,106 @@ with st.container():
     with col_img:
         archivo = st.file_uploader("Cargar Imagen del Objetivo", type=["jpg","png","jpeg"])
         if archivo:
-            st.image(archivo, use_container_width=True)
-            if st.button("🔍 ESCANEAR", type="primary", use_container_width=True):
-                st.session_state.last_image_bytes = resize_image(archivo)
+            st.image(archivo, use_container_width=True, caption="Objetivo detectado")
+            if st.button("🔍 ESCANEAR OBJETIVO", type="primary", use_container_width=True):
+                img = Image.open(archivo)
+                if img.mode in ("RGBA", "P"): img = img.convert("RGB")
+                img.thumbnail((768, 768))
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG")
+                st.session_state.last_image_bytes = buf.getvalue()
                 st.session_state.original_image = archivo.getvalue()
                 st.session_state.needs_analysis = True
                 st.session_state.source = "image"
                 st.rerun()
         
+        st.markdown("---")
         for log in st.session_state.log:
             st.markdown(f"<div class='log-box'>{log}</div>", unsafe_allow_html=True)
 
     with col_info:
-        if st.session_state.needs_analysis:
-            with st.spinner("Analizando con el filtro de realidad..."):
+        # LÓGICA DE PROCESAMIENTO
+        if st.session_state.get('needs_analysis'):
+            with st.spinner("⚡ Procesando con Filtro de Realidad..."):
                 try:
                     if st.session_state.source == "image":
                         b64 = base64.b64encode(st.session_state.last_image_bytes).decode()
-                        # Paso 1: Visión
-                        res_p1 = client.chat.completions.create(
-                            messages=[{"role": "user", "content": [
-                                {"type": "text", "text": "Describe este objeto con detalle técnico extremo para identificación."},
-                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
-                            ]}],
+                        # Paso 1: Descripción Visual
+                        res_v = client.chat.completions.create(
+                            messages=[{"role": "user", "content": [{"type": "text", "text": "Describe este objeto/lugar con detalle técnico extremo."},
+                                                                   {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}]}],
                             model="llama-3.2-11b-vision-preview"
                         )
-                        desc_v = res_p1.choices[0].message.content
+                        desc_tecnica = res_v.choices[0].message.content
+                        add_log("Descripción visual completada")
+
+                        # Paso 2: Ficha Estructurada
+                        prompt_f = f"Basado en: {desc_tecnica}, genera un JSON con: nombre, categoria (ANIMAL, COMIDA, LUGAR, ARTE), desc (15 palabras), historia (2 párrafos), stats [0,0,0,0], evos [3 variantes reales]."
+                        res_f = client.chat.completions.create(messages=[{"role": "user", "content": prompt_f}], model=SELECTED_MODEL, temperature=0.1)
+                        data = parse_json(res_f.choices[0].message.content)
+                    else:
+                        # Para variantes de texto
+                        prompt_t = f"Genera ficha TURIDEX JSON para: {st.session_state.current_item}. categoria: {st.session_state.current_category}. stats [0,0,0,0]."
+                        res_t = client.chat.completions.create(messages=[{"role": "user", "content": prompt_t}], model=SELECTED_MODEL)
+                        data = parse_json(res_t.choices[0].message.content)
+
+                    if data:
+                        # 💉 INYECCIÓN DEL FILTRO DE REALIDAD
+                        data["stats"] = calcular_stats_realistas(data.get("nombre",""), data.get("categoria",""), data.get("desc",""))
+                        st.session_state.current_data = data
+                        st.session_state.current_image = generate_image(data["nombre"])
+                        add_log(f"Ficha generada: {data['nombre']}")
                         
-                        # Paso 2: Estructura
-                        res_p2 = client.chat.completions.create(
-                            messages=[{"role": "user", "content": f"Basado en: {desc_v}, genera un JSON con: nombre, categoria (ANIMAL, COMIDA, LUGAR, ARTE), desc (15 palabras), historia (2 párrafos), stats [0,0,0,0], evos [3 variantes]."}],
-                            model=SELECTED_MODEL,
-                            temperature=0.1
-                        )
-                        data = parse_json(res_p2.choices[0].message.content)
-                        
-                        if data:
-                            # 🚨 APLICACIÓN DEL FILTRO DE REALIDAD
-                            data["stats"] = calcular_stats_realistas(data["nombre"], data["categoria"], data["desc"])
-                            st.session_state.current_data = data
-                            st.session_state.current_image = generate_image(data["nombre"])
-                            add_log(f"Identificado: {data['nombre']}")
-                    
+                        # Generar Audio
+                        text_audio = f"{data['nombre']}. {data['desc']}. {data['historia']}"
+                        tts = gTTS(text_audio, lang='es')
+                        fp = io.BytesIO()
+                        tts.write_to_fp(fp)
+                        st.session_state.current_audio = fp.getvalue()
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    st.error(f"Error en escaneo: {e}")
+                    add_log(f"Error: {str(e)}")
+                
                 st.session_state.needs_analysis = False
                 st.rerun()
 
+        # MOSTRAR RESULTADOS
         if st.session_state.current_data:
             data = st.session_state.current_data
             st.markdown(f"## {data['nombre']}")
-            st.markdown(f"**Categoría:** {data['categoria']}")
+            st.markdown(f"<div class='data-card'><b>Categoría:</b> {data['categoria']} <br> <i>{data['desc']}</i></div>", unsafe_allow_html=True)
             
-            st.markdown("### 📖 Entrada de Datos")
+            if st.session_state.current_image:
+                st.image(st.session_state.current_image, use_container_width=True)
+            
+            st.markdown("### 📖 Historia y Datos")
             st.markdown(f"<div class='historia-box'>{data['historia']}</div>", unsafe_allow_html=True)
             
-            # Mostrar Stats
-            st.markdown("### 📊 Atributos Reales")
-            labels = ["Stat 1", "Stat 2", "Stat 3", "Stat 4"]
-            if "ANIMAL" in data["categoria"]: labels = ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
-            elif "COMIDA" in data["categoria"]: labels = ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
+            if st.session_state.current_audio:
+                st.audio(st.session_state.current_audio)
+
+            # Barras de Stats
+            st.markdown("### 📊 Puntos Base Reales")
+            cat = data['categoria'].upper()
+            if "ANIMAL" in cat: labels = ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
+            elif "COMIDA" in cat: labels = ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
             else: labels = ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
             
             c1, c2 = st.columns(2)
             for i, label in enumerate(labels):
                 with (c1 if i < 2 else c2):
-                    val = data["stats"][i]
+                    val = data['stats'][i]
                     st.write(f"{label}: **{val}%**")
                     st.progress(val/100)
-
-            # Variantes
-            st.markdown("### 🔄 Variantes Relacionadas")
+            
+            st.markdown("### 🔄 Variantes Detectadas")
             cols = st.columns(3)
-            for i, evo in enumerate(data.get("evos", [])[:3]):
-                if cols[i].button(evo, use_container_width=True):
-                    # Lógica para buscar variante (similar al flujo de imagen pero solo texto)
-                    st.session_state.current_item = evo
+            for i, var in enumerate(data.get("evos", [])[:3]):
+                if cols[i].button(var, key=f"btn_{var}", use_container_width=True):
+                    st.session_state.current_item = var
+                    st.session_state.current_category = data['categoria']
+                    st.session_state.source = "text"
                     st.session_state.needs_analysis = True
-                    st.session_state.source = "text" # Implementar lógica de texto similar
                     st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
