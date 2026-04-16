@@ -48,20 +48,20 @@ def resize_image(image_file):
 
 def get_prompt(item_name=None):
     if item_name is None:
-        return """Analiza la imagen y responde **SOLO** con un JSON válido:
+        return """Analiza la imagen y responde **SOLO** con un JSON válido. No añadas nada más.
 
 {
-  "nombre": "Nombre del elemento",
+  "nombre": "Nombre claro del elemento",
   "categoria": "ANIMAL",
-  "desc": "Descripción corta",
-  "historia": "Dos párrafos cortos",
-  "stats": [80, 75, 70, 65],
+  "desc": "Descripción corta máximo 15 palabras",
+  "historia": "Dos párrafos cortos con información real",
+  "stats": [85, 75, 70, 60],
   "evos": ["Nombre1", "Nombre2", "Nombre3"]
 }
 
-Usa categorías: COMIDA, ANIMAL, LUGAR, ARTE."""
+Categorías permitidas: COMIDA, ANIMAL, LUGAR, ARTE. Las evos deben ser solo nombres cortos."""
     else:
-        return f"""Responde solo con un JSON válido sobre "{item_name}":
+        return f"""Responde **solo** con un JSON válido sobre "{item_name}":
 
 {{
   "nombre": "{item_name}",
@@ -80,18 +80,18 @@ def parse_json(text):
     except:
         pass
     return {"nombre": "Elemento", "categoria": "ANIMAL", "desc": "Error de análisis", 
-            "historia": "No se pudo procesar correctamente.", "stats": [60,60,60,60], "evos": ["Var1","Var2","Var3"]}
+            "historia": "La IA no devolvió JSON válido.", "stats": [60,60,60,60], "evos": ["Var1","Var2","Var3"]}
 
 def get_labels(category):
     cat = str(category).upper()
     if "ANIMAL" in cat: return ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
-    elif any(x in cat for x in ["LUGAR", "ARTE"]): return ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
+    elif any(x in cat for x in ["LUGAR", "ARTE", "PERSONA"]): return ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
     else: return ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
 
 with st.container():
     st.markdown("<div class='frame'>", unsafe_allow_html=True)
 
-    if st.button("🔄 Reiniciar"):
+    if st.button("🔄 Reiniciar TURIDEX"):
         st.session_state.clear()
         st.rerun()
 
@@ -99,7 +99,7 @@ with st.container():
 
     if st.session_state.log:
         st.markdown("**Logs:**")
-        for log in st.session_state.log[-8:]:
+        for log in st.session_state.log[-10:]:
             st.markdown(f"<div class='log-box'>{log}</div>", unsafe_allow_html=True)
 
     col1, col2 = st.columns([1, 2])
@@ -110,40 +110,42 @@ with st.container():
             st.image(archivo, use_container_width=True)
             if st.button("🔍 ESCANEAR OBJETIVO", type="primary", use_container_width=True):
                 st.session_state.log = ["1. Imagen cargada"]
-                st.session_state.current_item = "Procesando..."
+                st.session_state.current_item = "Procesando imagen..."
                 st.rerun()
 
     with col2:
-        if st.session_state.current_item == "Procesando...":
+        if st.session_state.current_item == "Procesando imagen...":
             try:
                 add_log = lambda x: st.session_state.log.append(x)
                 add_log("2. Optimizando imagen...")
                 bytes_opt = resize_image(archivo)
-                add_log("3. Llamando a modelo llama-3.1-70b-versatile...")
+                add_log("3. Llamando a modelo estable (llama3-70b-8192)...")
                 
                 prompt = get_prompt()
                 response = client.chat.completions.create(
                     messages=[{"role": "user", "content": prompt}],
-                    model="llama-3.1-70b-versatile",
+                    model="llama3-70b-8192",          # ← Modelo estable actual
                     temperature=0.1,
                     max_tokens=800
                 )
-                add_log("4. Respuesta recibida")
+                add_log("4. Respuesta recibida del modelo")
+                add_log("5. Procesando JSON...")
+                
                 data = parse_json(response.choices[0].message.content)
                 
                 st.session_state.current_item = data.get("nombre", "Elemento")
                 st.session_state.current_category = data.get("categoria", "ANIMAL")
                 add_log(f"✅ COMPLETADO: {st.session_state.current_item}")
                 st.rerun()
+                
             except Exception as e:
                 st.session_state.log.append(f"❌ ERROR: {str(e)}")
                 st.error(f"Error: {str(e)}")
 
-    if st.session_state.current_item and st.session_state.current_item not in ["Procesando...", "Procesando imagen..."]:
-        data = {"nombre": st.session_state.current_item, "categoria": st.session_state.current_category}
+    if st.session_state.current_item and st.session_state.current_item not in ["Procesando imagen...", "Procesando..."]:
         with col2:
-            st.success(f"**{data['nombre']}**")
-            st.write(f"**Categoría:** {data['categoria']}")
-            st.info("Versión básica funcionando. Podemos seguir mejorando stats y variantes.")
+            st.success(f"**{st.session_state.current_item}**")
+            st.write(f"**Categoría:** {st.session_state.current_category}")
+            st.info("La app ya funciona. Podemos seguir mejorando el prompt para que dé mejores stats y variantes limpias.")
 
     st.markdown("</div>", unsafe_allow_html=True)
