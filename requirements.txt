@@ -1,6 +1,7 @@
 streamlit
-google-generativeai
 groq
-gTTS
-Pillow
+pillow
+pandas
+plotly
+python-dotenv
 requests
