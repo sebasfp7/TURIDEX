@@ -52,7 +52,7 @@ def analizar_con_ia(prompt, image_b64=None, is_text=False):
         model = "llama-4-scout-17b-16e-instruct"
     else:
         messages = [{"role": "user", "content": prompt}]
-        model = "llama3-8b-8192"   # Más rápido para variantes
+        model = "llama3-8b-8192"
 
     response = client.chat.completions.create(
         messages=messages,
@@ -62,52 +62,45 @@ def analizar_con_ia(prompt, image_b64=None, is_text=False):
     )
     return response.choices[0].message.content
 
-# ====================== PROMPT DEFINITIVO (JSON) ======================
+# ====================== PROMPT DEFINITIVO ======================
 def get_prompt(item_name=None, inherited_category=None):
     if item_name is None:
-        return """Analiza la imagen y responde **ÚNICAMENTE** con un JSON válido. No añadas texto antes ni después.
+        return """Analiza la imagen y responde **ÚNICAMENTE** con un JSON válido. No añadas nada más.
 
 {
-  "nombre": "nombre exacto",
+  "nombre": "nombre del elemento",
   "categoria": "ANIMAL",
-  "desc": "descripción corta de máximo 15 palabras",
+  "desc": "descripción corta máximo 15 palabras",
   "historia": "dos párrafos cortos con información real",
-  "stats": [85, 70, 65, 60],
+  "stats": [80, 75, 65, 70],
   "evos": ["Nombre Corto 1", "Nombre Corto 2", "Nombre Corto 3"]
 }
 
-Reglas estrictas:
-- categoria solo puede ser: COMIDA, ANIMAL, LUGAR o ARTE
-- Si es ANIMAL usa stats de Fuerza, Agilidad, Peligro, Rareza
-- Si es COMIDA usa Sabor, Picante, Salud, Rareza
-- Las evos deben ser solo nombres cortos, nunca frases largas."""
+Reglas: categoria solo puede ser COMIDA, ANIMAL, LUGAR o ARTE. Las evos deben ser solo nombres cortos."""
     
     else:
-        return f"""Responde **únicamente** con un JSON válido sobre "{item_name}" (categoría: {inherited_category}):
+        return f"""Responde **solo** con un JSON válido sobre "{item_name}" (categoría: {inherited_category}):
 
 {{
   "nombre": "{item_name}",
   "categoria": "{inherited_category}",
-  "desc": "descripción corta máximo 15 palabras",
+  "desc": "descripción corta",
   "historia": "dos párrafos cortos",
-  "stats": [80, 75, 70, 65],
+  "stats": [75, 80, 70, 65],
   "evos": ["Nombre1", "Nombre2", "Nombre3"]
 }}
 
-No escribas nada fuera del JSON. Las "evos" deben ser solo 3 nombres cortos."""
+No escribas nada fuera del JSON."""
 
 def parse_json_response(text):
-    """Parseo robusto de JSON"""
     try:
-        # Buscar bloque JSON
-        json_match = re.search(r'\{.*\}', text, re.DOTALL)
+        json_match = re.search(r'(\{.*\})', text, re.DOTALL)
         if json_match:
-            return json.loads(json_match.group(0))
+            return json.loads(json_match.group(1))
         return json.loads(text)
     except:
-        # Fallback seguro
         return {
-            "nombre": st.session_state.get('current_item', 'Desconocido'),
+            "nombre": st.session_state.get('current_item', 'Elemento'),
             "categoria": st.session_state.get('current_category', 'LUGAR'),
             "desc": "No se pudo extraer descripción.",
             "historia": "No se pudo extraer historia.",
@@ -122,7 +115,12 @@ def get_labels(category):
     else: return ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
 
 def resize_image(image_file):
+    """Versión corregida y robusta"""
     img = Image.open(image_file)
+    # Convertir a RGB si tiene transparencia (RGBA, P)
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+    # Redimensionar manteniendo proporción
     if img.width > 800 or img.height > 800:
         img.thumbnail((800, 800), Image.Resampling.LANCZOS)
     buffer = io.BytesIO()
@@ -153,7 +151,7 @@ with st.container():
                 data = parse_json_response(raw_response)
 
                 stats = data.get("stats", [60, 60, 60, 60])
-                variantes = data.get("evos", ["Variante 1", "Variante 2", "Variante 3"])[:3]
+                variantes = [str(v) for v in data.get("evos", ["Var1", "Var2", "Var3"])][:3]
                 labels = get_labels(data.get("categoria", cat))
 
                 with col_img:
@@ -190,7 +188,7 @@ with st.container():
 
     else:
         with col_img:
-            archivo = st.file_uploader("Carga una imagen", type=["jpg","png","jpeg"])
+            archivo = st.file_uploader("Carga una imagen (JPG, PNG)", type=["jpg","png","jpeg"])
             if archivo:
                 st.image(archivo, use_container_width=True)
                 if st.button("🔍 ESCANEAR OBJETIVO", type="primary", use_container_width=True):
@@ -206,7 +204,6 @@ with st.container():
                     
                     st.session_state.current_item = data.get("nombre", "Elemento")
                     st.session_state.current_category = data.get("categoria", "LUGAR")
-                    st.session_state.historial = [st.session_state.current_item]
                     st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
