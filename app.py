@@ -8,19 +8,13 @@ import json
 
 st.set_page_config(page_title="TURIDEX", layout="wide")
 
-# ====================== CONFIGURACIÓN CENTRALIZADA DE MODELOS ======================
-MODELS = {
-    "vision": "pixtral-12b-2409",
-    "text_smart": "llama-3.3-70b-versatile",
-    "fallback": "llama3-70b-8192"
-}
+# ====================== MODELO SOLICITADO ======================
+SELECTED_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 # ====================== SESSION STATE ======================
 if 'current_item' not in st.session_state: st.session_state.current_item = None
 if 'current_category' not in st.session_state: st.session_state.current_category = None
-if 'historial' not in st.session_state: st.session_state.historial = []
 if 'log' not in st.session_state: st.session_state.log = []
-if 'active_model' not in st.session_state: st.session_state.active_model = MODELS["vision"]
 
 st.markdown("""
 <style>
@@ -28,28 +22,30 @@ st.markdown("""
             background-size: cover; background-attachment: fixed;}
     .frame {background: rgba(255,255,255,0.92); backdrop-filter: blur(12px);
             border: 4px solid #DC0A2D; border-radius: 20px; padding: 25px;}
-    .title-box {background:#000; border:4px solid #DC0A2D; border-radius:12px; padding:15px; text-align:center; margin-bottom:10px;}
-    .title {color:#FFDE00 !important; font-family:'Courier New'; font-size:3.6em; margin:0; text-shadow:0 0 15px #FFDE00;}
-    .model-header {background:#111; color:#00FFAA; padding:10px; border-radius:8px; text-align:center; font-family:monospace; margin-bottom:15px;}
-    .log-box {background:#0A0A0A; color:#00FF00; padding:10px; border-radius:6px; font-family:monospace; font-size:0.9em; margin:6px 0;}
-    .data-card, .historia-box {background:rgba(255,255,255,0.95); backdrop-filter:blur(10px); padding:18px; border-radius:10px; margin:12px 0;}
-    .variant-btn {background:linear-gradient(135deg,#FFCC00,#FFEB3B) !important; color:black !important; font-weight:bold !important;
-                  border:3px solid black !important; border-radius:15px !important; padding:14px !important; margin:6px 0 !important;}
+    .title {color: #FFDE00 !important; font-size: 3.8em; text-align:center;}
+    .header {background:#000; color:#0F0; padding:12px; border-radius:8px; text-align:center; font-size:1.4em;}
+    .log-box {background:#111; color:#0F0; padding:10px; border-radius:5px; font-family:monospace; margin:8px 0;}
+    .data-card, .historia-box {background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
+                               padding: 18px; border-radius: 10px; margin: 12px 0;}
+    .variant-btn {background: linear-gradient(135deg, #FFCC00, #FFEB3B) !important; color: black !important;
+                  font-weight: bold !important; border: 3px solid black !important; border-radius: 15px !important;
+                  padding: 14px !important; margin: 6px 0 !important;}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<div class='title-box'><h1 class='title'>⚡ TURIDEX ⚡</h1></div>", unsafe_allow_html=True)
-st.markdown(f"<div class='model-header'>📡 MOTOR: {st.session_state.active_model}</div>", unsafe_allow_html=True)
+st.markdown("<h1 class='title'>⚡ TURIDEX ⚡</h1>", unsafe_allow_html=True)
+st.markdown(f"<div class='header'>📡 MODELO ACTIVO: {SELECTED_MODEL}</div>", unsafe_allow_html=True)
 
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
 def add_log(msg):
     st.session_state.log.append(msg)
-    if len(st.session_state.log) > 10: st.session_state.log.pop(0)
+    if len(st.session_state.log) > 12: st.session_state.log.pop(0)
 
 def resize_image(image_file):
     img = Image.open(image_file)
-    if img.mode in ("RGBA", "P"): img = img.convert("RGB")
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
     if img.width > 800 or img.height > 800:
         img.thumbnail((800, 800), Image.Resampling.LANCZOS)
     buffer = io.BytesIO()
@@ -58,7 +54,7 @@ def resize_image(image_file):
 
 def get_prompt(is_image=True, item_name=None, category=None):
     if is_image:
-        return """Responde **únicamente** con un JSON válido. No añadas texto fuera de él.
+        return """Analiza la imagen y responde **ÚNICAMENTE** con un JSON válido. No añadas nada más.
 
 {
   "nombre": "Nombre claro del elemento",
@@ -69,7 +65,9 @@ def get_prompt(is_image=True, item_name=None, category=None):
   "evos": ["NombreCorto1", "NombreCorto2", "NombreCorto3"]
 }
 
-Reglas: categoria solo puede ser COMIDA, ANIMAL, LUGAR o ARTE. Las evos deben ser solo nombres cortos."""
+Reglas estrictas: 
+- categoria solo puede ser COMIDA, ANIMAL, LUGAR o ARTE
+- Las evos deben ser solo nombres cortos, nunca frases largas."""
     else:
         return f"""Responde **solo** con un JSON válido sobre "{item_name}":
 
@@ -98,37 +96,6 @@ def get_labels(category):
     elif any(x in cat for x in ["LUGAR", "ARTE", "PERSONA"]): return ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
     else: return ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
 
-def call_groq(prompt, image_b64=None, use_vision=True):
-    """Función con fallback automático"""
-    models_to_try = [MODELS["vision"] if use_vision else MODELS["text_smart"], MODELS["fallback"]]
-    
-    for model in models_to_try:
-        try:
-            st.session_state.active_model = model
-            add_log(f"[MODEL] Intentando con {model}...")
-            
-            if image_b64 and use_vision:
-                messages = [{"role": "user", "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
-                ]}]
-            else:
-                messages = [{"role": "user", "content": prompt}]
-            
-            response = client.chat.completions.create(
-                messages=messages,
-                model=model,
-                temperature=0.1,
-                max_tokens=900,
-                response_format={"type": "json_object"} if not use_vision else None
-            )
-            add_log(f"[OK] Respuesta recibida de {model}")
-            return response.choices[0].message.content
-        except Exception as e:
-            add_log(f"[FALLBACK] {model} falló: {str(e)[:80]}...")
-            continue
-    raise Exception("Todos los modelos fallaron")
-
 with st.container():
     st.markdown("<div class='frame'>", unsafe_allow_html=True)
 
@@ -136,7 +103,7 @@ with st.container():
         st.session_state.clear()
         st.rerun()
 
-    st.markdown("**Sistema Logs**")
+    st.markdown("**Logs del Sistema**")
     for log in st.session_state.log:
         st.markdown(f"<div class='log-box'>{log}</div>", unsafe_allow_html=True)
 
@@ -154,28 +121,39 @@ with st.container():
     with col_info:
         if st.session_state.current_item == "Procesando imagen...":
             try:
-                add_log("[VISION] Optimizando payload de imagen...")
+                add_log = lambda x: st.session_state.log.append(x)
+                add_log("[1] Optimizando imagen (800px, calidad 85%)...")
                 bytes_opt = resize_image(archivo)
                 b64 = base64.b64encode(bytes_opt).decode()
+                add_log("[2] Enviando petición al modelo meta-llama/llama-4-scout-17b-16e-instruct...")
                 
                 prompt = get_prompt(is_image=True)
-                raw_response = call_groq(prompt, b64, use_vision=True)
+                response = client.chat.completions.create(
+                    messages=[{"role": "user", "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
+                    ]}],
+                    model=SELECTED_MODEL,
+                    temperature=0.1,
+                    max_tokens=1000
+                )
+                add_log("[3] Respuesta recibida del modelo")
+                add_log("[4] Parseando JSON...")
                 
-                data = parse_json(raw_response)
+                data = parse_json(response.choices[0].message.content)
                 
-                st.session_state.current_item = data.get("nombre", "Elemento")
+                st.session_state.current_item = data.get("nombre", "Elemento sin nombre")
                 st.session_state.current_category = data.get("categoria", "ANIMAL")
-                st.session_state.historial = st.session_state.historial[-2:] + [st.session_state.current_item]
-                add_log(f"[SUCCESS] Análisis completado: {st.session_state.current_item}")
+                add_log(f"[SUCCESS] Análisis completado → {st.session_state.current_item}")
                 st.rerun()
                 
             except Exception as e:
-                add_log(f"[CRITICAL ERROR] {str(e)}")
+                st.session_state.log.append(f"[ERROR] {str(e)}")
                 st.error(f"Error crítico: {str(e)}")
 
         elif st.session_state.current_item:
             st.markdown(f"## {st.session_state.current_item}")
             st.markdown(f"<div class='data-card'><b>Categoría:</b> {st.session_state.current_category}</div>", unsafe_allow_html=True)
-            st.info("✅ Núcleo estable. Listo para siguiente fase (stats inteligentes + navegación de variantes).")
+            st.info("El núcleo está funcionando. Ahora podemos mejorar las stats y las variantes.")
 
     st.markdown("</div>", unsafe_allow_html=True)
