@@ -1,0 +1,17 @@
+{
+  "cerdo asado": {
+    "historia": "Tradición de campo cocinada a fuego lento.",
+    "dato": "Se recomienda usar leña de árboles frutales.",
+    "mapa": "restaurantes+de+cerdo+asado"
+  },
+  "bandeja paisa": {
+    "historia": "Plato insignia de la región de Antioquia, Colombia.",
+    "dato": "Originalmente era el desayuno de los arrieros para tener energía todo el día.",
+    "mapa": "restaurantes+de+comida+colombiana"
+  },
+  "tacos al pastor": {
+    "historia": "Influencia de la cocina libanesa adaptada con carne de cerdo en México.",
+    "dato": "El 'trompo' es la técnica clásica de apilar la carne.",
+    "mapa": "taquerias+al+pastor"
+  }
+}
