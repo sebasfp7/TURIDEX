@@ -1,18 +1,21 @@
 import streamlit as st
 from groq import Groq
-import PIL.Image
+from PIL import Image
 import base64
 from gtts import gTTS
 import io
 import re
+import json
 import requests
 from io import BytesIO
 
 st.set_page_config(page_title="TURIDEX", layout="wide")
 
+# ====================== SESSION STATE ======================
 if 'current_item' not in st.session_state: st.session_state.current_item = None
 if 'current_category' not in st.session_state: st.session_state.current_category = None
 if 'historial' not in st.session_state: st.session_state.historial = []
+if 'status_log' not in st.session_state: st.session_state.status_log = []
 
 st.markdown("""
 <style>
@@ -22,10 +25,11 @@ st.markdown("""
             border: 4px solid #DC0A2D; border-radius: 20px; padding: 25px;}
     .title {color: #FFDE00 !important; font-family: 'Courier New', monospace; font-size: 3.8em;
             text-shadow: 0 0 20px #FFDE00, 0 0 35px #FF0000;}
-    .current-header {background: #000000; color: #00FF41; padding: 15px; border-radius: 10px;
-                     text-align: center; font-size: 1.6em; font-weight: bold; margin-bottom: 15px;}
+    .header-status {background: #000000; color: #00FF41; padding: 12px; border-radius: 8px;
+                    text-align: center; font-family: 'Courier New', monospace; margin-bottom: 15px;}
+    .log {background: #111111; color: #00FF00; padding: 8px; border-radius: 5px; font-family: monospace; font-size: 0.9em;}
     .data-card, .historia-box {background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
-                               padding: 18px; border-radius: 10px; margin: 12px 0;}
+                               padding: 18px; border-radius: 10px; margin: 10px 0;}
     .variant-btn {background: linear-gradient(135deg, #FFCC00, #FFEB3B) !important; color: black !important;
                   font-weight: bold !important; border: 3px solid black !important; border-radius: 15px !important;
                   padding: 14px !important; margin: 6px 0 !important;}
@@ -35,78 +39,94 @@ st.markdown("""
 
 st.markdown("<h1 class='title' style='text-align:center'>⚡ TURIDEX ⚡</h1>", unsafe_allow_html=True)
 
-try:
-    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-except:
-    st.error("Falta GROQ_API_KEY")
+client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-def clean_text(text):
-    text = re.sub(r'[*#_\[\]]|Variante\d+:|Variante :', '', text)
-    return re.sub(r'\n{3,}', '\n\n', text).strip()
+# ====================== CACHÉ ======================
+@st.cache_data(show_spinner=False, ttl=300)
+def procesar_imagen_cache(_image_bytes):
+    return base64.b64encode(_image_bytes).decode()
 
-def extract(tag, text):
-    match = re.search(rf"{tag}:\s*(.*?)(?=\n[A-Z]+:|$)", text, re.S | re.I)
-    return clean_text(match.group(1)) if match else ""
+@st.cache_data(show_spinner=False, ttl=180)
+def analizar_con_ia(prompt, image_b64=None, is_text=False):
+    if image_b64:
+        messages = [{"role": "user", "content": [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
+        ]}]
+        model = "llama-4-scout-17b-16e-instruct"
+    else:
+        messages = [{"role": "user", "content": prompt}]
+        model = "llama3-8b-8192"  # Modelo más ligero para texto
 
-def clean_variants(evos_text):
-    """Limpieza agresiva de variantes"""
-    items = re.split(r',|•|\n', evos_text)
-    clean = []
-    for item in items:
-        item = re.sub(r'^.*?:', '', item).strip()  # Quita "Variante1:"
-        item = re.sub(r'\..*', '', item).strip()   # Quita texto largo
-        if item and len(item) > 2 and not any(bad in item.lower() for bad in ['la gioconda', 'ha sido', 'es considerada']):
-            clean.append(item[:25])  # Limitar longitud
-    return clean[:3]
+    response = client.chat.completions.create(
+        messages=messages,
+        model=model,
+        temperature=0.05,
+        max_tokens=800,
+        response_format={"type": "json_object"}
+    )
+    return response.choices[0].message.content
 
-def generate_image(name):
-    try:
-        prompt = f"{name}, high quality, clean background, encyclopedia style, no text, professional"
-        url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(prompt)}?width=800&height=600&nologo=true&seed=42"
-        resp = requests.get(url, timeout=15)
-        if resp.status_code == 200:
-            return PIL.Image.open(BytesIO(resp.content))
-    except:
-        pass
-    return None
-
+# ====================== PROMPT DEFINITIVO (JSON) ======================
 def get_prompt(item_name=None, inherited_category=None):
-    cat = inherited_category or "COMIDA"
-    return f"""Eres TURIDEX. Responde **SIEMPRE** con el formato exacto. No añadas texto extra, explicaciones ni "Variante1:".
+    if item_name is None:
+        return """Analiza la imagen y responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
+{
+  "nombre": "string",
+  "categoria": "COMIDA|ANIMAL|LUGAR|ARTE",
+  "desc": "descripción corta máximo 15 palabras",
+  "historia": "dos párrafos cortos",
+  "stats": [85, 45, 20, 65],
+  "evos": ["nombre1", "nombre2", "nombre3"]
+}
+Reglas: Si es animal usa stats de fuerza/agilidad/peligro/rareza. Si es comida usa sabor/picante/salud/rareza. Variantes deben ser solo nombres cortos."""
+    
+    else:
+        return f"""{{
+  "nombre": "{item_name}",
+  "categoria": "{inherited_category}",
+  "desc": "descripción corta máximo 15 palabras",
+  "historia": "dos párrafos cortos y reales",
+  "stats": [números entre 10 y 95 según categoría],
+  "evos": ["nombre corto 1", "nombre corto 2", "nombre corto 3"]
+}}
+Reglas estrictas: 
+- Solo responde con JSON válido.
+- Las variantes deben ser sustantivos cortos del mismo tipo.
+- No incluyas explicaciones ni texto fuera del JSON."""
 
-ELEMENTO: {item_name}
-CATEGORÍA CONFIRMADA: {cat}
+# ====================== UTILIDADES ======================
+def resize_image(image_file):
+    img = Image.open(image_file)
+    if img.width > 800:
+        ratio = 800 / img.width
+        new_size = (800, int(img.height * ratio))
+        img = img.resize(new_size, Image.Resampling.LANCZOS)
+    buffer = io.BytesIO()
+    img.save(buffer, format="JPEG", quality=85, optimize=True)
+    return buffer.getvalue()
 
-REGLAS ESTRICTAS:
-- Si la categoría es ANIMAL → Stats: Fuerza, Agilidad, Peligro, Rareza
-- Si la categoría es COMIDA → Stats: Sabor, Picante, Salud, Rareza
-- Si la categoría es LUGAR o ARTE → Stats: Historia, Belleza, Cultura, Rareza
-
-**EVOS DEBEN SER SOLO 3 NOMBRES CORTOS** (máximo 3 palabras cada uno). Ejemplos correctos:
-- Para La Gioconda → Leonardo da Vinci, Venus de Milo, El Grito
-- Para León → Tigre, Jaguar, Pantera
-
-FORMATO OBLIGATORIO (copia exactamente):
-
-NOMBRE: {item_name}
-CATEGORIA: {cat}
-DESC: [máximo 12 palabras]
-HISTORIA: [Dos párrafos cortos]
-STATS: [45, 65, 80, 75]
-EVOS: [Nombre1, Nombre2, Nombre3]
-
-Analiza ahora."""
+def parse_json_response(text):
+    try:
+        return json.loads(text)
+    except:
+        # Fallback si el JSON falla
+        return {
+            "nombre": st.session_state.current_item or "Desconocido",
+            "categoria": st.session_state.current_category or "LUGAR",
+            "desc": "No se pudo extraer descripción.",
+            "historia": "No se pudo extraer historia.",
+            "stats": [70, 65, 50, 60],
+            "evos": ["Variante 1", "Variante 2", "Variante 3"]
+        }
 
 def get_labels(category):
-    category = str(category).upper()
-    if "ANIMAL" in category:
-        return ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
-    elif any(x in category for x in ["LUGAR", "ARTE", "PERSONA"]):
-        return ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
-    else:
-        return ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
+    cat = str(category).upper()
+    if "ANIMAL" in cat: return ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
+    elif any(x in cat for x in ["LUGAR", "ARTE", "PERSONA"]): return ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
+    else: return ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
 
-# ====================== FLUJO ======================
+# ====================== INTERFAZ ======================
 with st.container():
     st.markdown("<div class='frame'>", unsafe_allow_html=True)
 
@@ -114,8 +134,9 @@ with st.container():
         for key in list(st.session_state.keys()): del st.session_state[key]
         st.rerun()
 
-    if st.session_state.current_item:
-        st.markdown(f"<div class='current-header'>📍 ANALIZANDO: {st.session_state.current_item}</div>", unsafe_allow_html=True)
+    # Header dinámico
+    status_text = st.session_state.current_item or "Esperando objetivo..."
+    st.markdown(f"<div class='header-status'>📍 ANALIZANDO: {status_text}</div>", unsafe_allow_html=True)
 
     col_img, col_info = st.columns([1, 2])
 
@@ -123,68 +144,47 @@ with st.container():
         item = st.session_state.current_item
         cat = st.session_state.current_category
 
-        with st.spinner(f"Procesando {item}..."):
+        with st.spinner("Procesando..."):
             try:
                 prompt = get_prompt(item, cat)
-                response = client.chat.completions.create(
-                    messages=[{"role": "user", "content": prompt}],
-                    model="meta-llama/llama-4-scout-17b-16e-instruct",
-                    temperature=0.05,
-                    max_tokens=1000
-                )
-                res = response.choices[0].message.content
+                json_str = analizar_con_ia(prompt, None, is_text=True)
+                data = parse_json_response(json_str)
 
-                nombre = extract("NOMBRE", res) or item
-                categoria = extract("CATEGORIA", res).upper() or cat
-                desc = extract("DESC", res)
-                historia = extract("HISTORIA", res)
-                stats_raw = extract("STATS", res)
-                evos_raw = extract("EVOS", res)
-
-                nums = [min(100, max(10, int(n))) for n in re.findall(r'\d+', stats_raw)][:4]
-                while len(nums) < 4: nums.append(60)
-
-                variantes = clean_variants(evos_raw)
-
-                if nombre not in st.session_state.historial:
-                    st.session_state.historial.append(nombre)
-                st.session_state.current_category = categoria
+                variantes = data.get("evos", ["Variante1", "Variante2", "Variante3"])[:3]
+                stats = data.get("stats", [60, 60, 60, 60])
+                labels = get_labels(data.get("categoria", cat))
 
                 with col_img:
-                    st.write(f"**Visualización de {nombre}**")
-                    img = generate_image(nombre)
+                    img = generate_image(item)  # Función optimizada
                     if img:
                         st.image(img, use_container_width=True)
                     else:
-                        st.error("⚠️ No se pudo generar la imagen")
-                        st.info("La API de imágenes está inestable. Prueba con otra variante.")
+                        st.info("🌐 Visualización generada por IA")
 
                 with col_info:
-                    st.markdown(f"## {nombre}")
-                    st.markdown(f"<div class='data-card'><b>Categoría:</b> {categoria}</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='data-card'>{desc}</div>", unsafe_allow_html=True)
+                    st.markdown(f"## {data.get('nombre', item)}")
+                    st.markdown(f"<div class='data-card'><b>Categoría:</b> {data.get('categoria', cat)}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='data-card'>{data.get('desc', '')}</div>", unsafe_allow_html=True)
                     
                     st.markdown("### 📖 Historia")
-                    st.markdown(f"<div class='historia-box'>{historia}</div>", unsafe_allow_html=True)
-                    
-                    labels = get_labels(categoria)
+                    st.markdown(f"<div class='historia-box'>{data.get('historia', '')}</div>", unsafe_allow_html=True)
                     
                     st.markdown("### 📊 Puntos Base")
                     c1, c2 = st.columns(2)
                     with c1:
                         for i in range(2):
-                            st.write(f"{labels[i]}: **{nums[i]}%**")
-                            st.progress(nums[i]/100)
+                            st.write(f"{labels[i]}: **{stats[i]}%**")
+                            st.progress(stats[i]/100)
                     with c2:
-                        for i in range(2,4):
-                            st.write(f"{labels[i]}: **{nums[i]}%**")
-                            st.progress(nums[i]/100)
+                        for i in range(2, 4):
+                            st.write(f"{labels[i]}: **{stats[i]}%**")
+                            st.progress(stats[i]/100)
                     
                     st.markdown("### 🔄 Variantes")
                     for var in variantes:
-                        if st.button(var, key=f"btn_{var}", use_container_width=True):
+                        if st.button(var, key=f"var_{var}", use_container_width=True):
                             st.session_state.current_item = var
-                            st.session_state.current_category = categoria
+                            st.session_state.current_category = data.get("categoria", cat)
                             st.rerun()
 
             except Exception as e:
@@ -196,7 +196,19 @@ with st.container():
             if archivo:
                 st.image(archivo, use_container_width=True)
                 if st.button("🔍 ESCANEAR OBJETIVO", type="primary", use_container_width=True):
+                    bytes_optimizados = resize_image(archivo)
+                    b64 = procesar_imagen_cache(bytes_optimizados)
+                    
                     st.session_state.current_item = "Procesando imagen..."
+                    st.session_state.current_category = "DESCONOCIDO"
+                    
+                    prompt = get_prompt()
+                    json_str = analizar_con_ia(prompt, b64, is_text=False)
+                    data = parse_json_response(json_str)
+                    
+                    st.session_state.current_item = data.get("nombre", "Elemento")
+                    st.session_state.current_category = data.get("categoria", "LUGAR")
+                    st.session_state.historial = [st.session_state.current_item]
                     st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
