@@ -6,6 +6,7 @@ import io
 import re
 import json
 import requests
+import time
 from io import BytesIO
 from gtts import gTTS
 
@@ -19,8 +20,7 @@ if 'current_data' not in st.session_state: st.session_state.current_data = None
 if 'last_image_bytes' not in st.session_state: st.session_state.last_image_bytes = None
 if 'current_image' not in st.session_state: st.session_state.current_image = None
 if 'current_audio' not in st.session_state: st.session_state.current_audio = None
-if 'needs_analysis' not in st.session_state: st.session_state.needs_analysis = False
-if 'source' not in st.session_state: st.session_state.source = None
+if 'last_request_time' not in st.session_state: st.session_state.last_request_time = 0
 if 'log' not in st.session_state: st.session_state.log = []
 
 st.markdown("""
@@ -40,7 +40,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown("<h1 class='title'>⚡ TURIDEX ⚡</h1>", unsafe_allow_html=True)
-st.markdown(f"<div class='header'>📡 MODELO ACTIVO: {SELECTED_MODEL}</div>", unsafe_allow_html=True)
+st.markdown(f"<div class='header'>📡 MODELO: {SELECTED_MODEL}</div>", unsafe_allow_html=True)
 
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
@@ -51,38 +51,37 @@ def add_log(msg):
 def resize_image(image_file):
     img = Image.open(image_file)
     if img.mode in ("RGBA", "P"): img = img.convert("RGB")
-    if img.width > 800 or img.height > 800:
-        img.thumbnail((800, 800), Image.Resampling.LANCZOS)
+    img.thumbnail((512, 512), Image.Resampling.LANCZOS)  # Reducción agresiva recomendada
     buffer = io.BytesIO()
-    img.save(buffer, format="JPEG", quality=85, optimize=True)
+    img.save(buffer, format="JPEG", quality=70, optimize=True)
     return buffer.getvalue()
 
 def generate_image(name):
     try:
         url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(f'{name}, realistic, high quality, clean background, national geographic style')}"
         resp = requests.get(url + "?width=700&height=500&nologo=true", timeout=10)
-        if resp.status_code == 200:
+        if resp.status_code == 200 and len(resp.content) > 5000:
             return Image.open(BytesIO(resp.content))
-    except:
-        pass
+    except Exception as e:
+        add_log(f"[IMG_ERROR] {str(e)}")
     return None
 
 def get_prompt(is_image=True, item_name=None, category=None):
     if is_image:
-        return """Analiza la imagen y responde **SOLO** con un JSON válido. La historia debe ser extensa y detallada (mínimo 180 palabras).
+        return """Analiza la imagen y responde **SOLO** con un JSON válido. Historia debe ser larga y detallada (mínimo 180 palabras).
 
 {
   "nombre": "Nombre claro",
   "categoria": "ANIMAL",
   "desc": "Descripción corta máximo 15 palabras",
-  "historia": "Dos párrafos largos con origen, hábitat, comportamiento, curiosidades e importancia",
+  "historia": "Dos párrafos extensos con origen, hábitat, comportamiento, curiosidades e importancia cultural",
   "stats": [88, 85, 78, 70],
   "evos": ["Tigre", "Leopardo", "Jaguar"]
 }
 
-Reglas: Para animales imponentes como leones, stats deben ser altos (Fuerza, Agilidad, Peligro >75)."""
+Reglas estrictas: Para animales como leones, stats deben ser altos (Fuerza, Agilidad, Peligro >75)."""
     else:
-        return f"""Responde **solo** con un JSON válido y detallado sobre "{item_name}":
+        return f"""Responde **solo** con un JSON válido sobre "{item_name}":
 
 {{
   "nombre": "{item_name}",
@@ -128,20 +127,23 @@ with st.container():
             if st.button("🔍 ESCANEAR OBJETIVO", type="primary", use_container_width=True):
                 st.session_state.log = ["[START] Nueva petición iniciada"]
                 st.session_state.last_image_bytes = resize_image(archivo)
+                st.session_state.current_item = "Procesando imagen..."
                 st.session_state.needs_analysis = True
                 st.session_state.source = "image"
-                st.session_state.current_item = "Procesando imagen..."
                 st.rerun()
 
     with col_info:
-        # === PRIORIDAD 1: Análisis solicitado ===
-        if st.session_state.needs_analysis:
+        if st.session_state.get('needs_analysis', False):
             try:
-                add_log = lambda x: st.session_state.log.append(x)
+                current_time = time.time()
+                if current_time - st.session_state.last_request_time < 2.0:
+                    add_log("[RATE LIMIT] Esperando 2 segundos entre peticiones...")
+                    time.sleep(2.0)
+
                 add_log(f"[PIPELINE] Source: {st.session_state.source}")
 
                 if st.session_state.source == "image" and st.session_state.last_image_bytes:
-                    add_log("[VISION] Enviando imagen al modelo Scout...")
+                    add_log(f"[VISION] Enviando {len(st.session_state.last_image_bytes)} bytes a {SELECTED_MODEL}...")
                     b64 = base64.b64encode(st.session_state.last_image_bytes).decode()
                     prompt = get_prompt(is_image=True)
                     response = client.chat.completions.create(
@@ -151,7 +153,8 @@ with st.container():
                         ]}],
                         model=SELECTED_MODEL,
                         temperature=0.1,
-                        max_tokens=1200
+                        max_tokens=1200,
+                        timeout=30.0
                     )
                 else:
                     add_log(f"[TEXT] Analizando variante: {st.session_state.current_item}")
@@ -161,10 +164,11 @@ with st.container():
                         messages=[{"role": "user", "content": prompt}],
                         model=SELECTED_MODEL,
                         temperature=0.1,
-                        max_tokens=1000
+                        max_tokens=1000,
+                        timeout=30.0
                     )
 
-                add_log("[3] Respuesta recibida del modelo")
+                add_log(f"[OK] Respuesta recibida. Finish reason: {response.choices[0].finish_reason}")
                 data = parse_json(response.choices[0].message.content)
 
                 if data:
@@ -174,16 +178,17 @@ with st.container():
                     st.session_state.current_image = generate_image(st.session_state.current_item)
                     add_log(f"[SUCCESS] Análisis completado → {st.session_state.current_item}")
                 else:
-                    add_log("[ERROR] No se pudo parsear el JSON")
+                    add_log("[ERROR] No se pudo parsear el JSON devuelto")
 
-            except Exception as e:
-                add_log(f"[CRITICAL ERROR] {str(e)}")
-                st.error(f"Error crítico: {str(e)}")
-            finally:
+                st.session_state.last_request_time = time.time()
                 st.session_state.needs_analysis = False
                 st.rerun()
 
-        # === PRIORIDAD 3: Renderizado ===
+            except Exception as e:
+                add_log(f"[CRITICAL] {str(e)}")
+                st.error(f"Error crítico: {str(e)}")
+                st.session_state.needs_analysis = False
+
         elif st.session_state.current_data:
             data = st.session_state.current_data
             labels = get_labels(data.get("categoria", "ANIMAL"))
@@ -193,15 +198,15 @@ with st.container():
             with col_img:
                 if st.session_state.current_image:
                     st.image(st.session_state.current_image, use_container_width=True, caption=data.get("nombre"))
-                elif 'archivo' in locals():
-                    st.image(archivo, use_container_width=True)
+                elif st.session_state.get('last_image_bytes'):
+                    st.image(st.session_state.last_image_bytes, use_container_width=True)
 
             with col_info:
                 st.markdown(f"## {data.get('nombre', 'León')}")
                 st.markdown(f"<div class='data-card'><b>Categoría:</b> {data.get('categoria', 'ANIMAL')}</div>", unsafe_allow_html=True)
                 
                 st.markdown("### 📖 Historia")
-                st.markdown(f"<div class='historia-box'>{data.get('historia', 'Sin datos de historia.')}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='historia-box'>{data.get('historia', 'Sin historia disponible.')}</div>", unsafe_allow_html=True)
                 
                 st.markdown("### 📊 Puntos Base")
                 c1, c2 = st.columns(2)
@@ -225,16 +230,16 @@ with st.container():
                         st.session_state.source = "text"
                         st.rerun()
 
-                try:
-                    if st.session_state.current_audio is None:
+                if st.session_state.current_audio is None and data.get('historia'):
+                    try:
                         text = f"{data.get('nombre')}. {data.get('desc', '')}. {data.get('historia', '')}"
                         tts = gTTS(text, lang='es')
                         fp = io.BytesIO()
                         tts.write_to_fp(fp)
                         st.session_state.current_audio = fp.getvalue()
-                    if st.session_state.current_audio:
-                        st.audio(st.session_state.current_audio)
-                except:
-                    pass
+                    except Exception as e:
+                        add_log(f"[AUDIO_ERROR] {e}")
+                if st.session_state.current_audio:
+                    st.audio(st.session_state.current_audio)
 
     st.markdown("</div>", unsafe_allow_html=True)
