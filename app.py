@@ -81,7 +81,7 @@ def generate_image(name):
 def get_visual_description_prompt():
     return """MIRA LA IMAGEN ADJUNTA con máxima atención como un perito experto. Describe con TODO DETALLE TÉCNICO posible:
 
-ARQUITECTURA / ESTRUCTURA:
+ARQUITECTURA / ESTRUCTURA (si aplica):
 - Estilo arquitectónico exacto (colonial español, republicano, barroco, neoclásico, etc.)
 - Materiales visibles (piedra caliza, ladrillo, madera, hormigón)
 - Forma y proporciones (torre cuadrada, octogonal, circular, altura aproximada)
@@ -95,24 +95,24 @@ ELEMENTOS ESPECÍFICOS:
 - ¿Hay relojes? ¿Qué forma tienen? ¿Números romanos o arábigos?
 - ¿Hay textos, placas, letreros visibles? ¿Qué dicen exactamente?
 - ¿Hay vegetación, flora característica (palmeras, buganvillas)?
-- ¿Hay personas, vehículos o objetos que den escala?
+- ¿Hay personas, vehículos u objetos que den escala?
 
 CONTEXTO GEOGRÁFICO:
 - ¿Parece estar en qué país o región? (clima, arquitectura circundante, vegetación)
 - ¿Es urbano, costero, amurallado, montañoso?
 
 IDENTIFICACIÓN PRELIMINAR:
-- Si reconoces este lugar específico, nómbralo.
+- Si reconoces este lugar/animal/comida/objeto específico, nómbralo.
 - Si no, describe qué lo hace único frente a otros similares.
 
 REGLAS:
 - NO uses JSON.
 - NO uses markdown.
-- Sé extremadamente específico. "Edificio antiguo" NO vale. "Torre colonial de piedra caliza amarilla con reloj de esfera blanca y números romanos en una muralla española" SÍ vale.
+- Sé extremadamente específico.
 - Mínimo 180 palabras de descripción pura."""
 
 def get_structured_prompt(descripcion_visual):
-    return f"""Eres TURIDEX, una base de datos enciclopédica precisa.
+    return f"""Eres TURIDEX, una base de datos enciclopédica precisa y honesta.
 
 Tienes esta descripción técnica detallada de una imagen analizada por un perito visual:
 
@@ -124,11 +124,50 @@ Tu tarea: IDENTIFICAR el objeto/lugar/animal/comida ESPECÍFICO y generar su fic
 
 REGLAS DE IDENTIFICACIÓN:
 - NUNCA uses nombres genéricos ("Edificio", "Torre", "Puerta", "Animal").
-- Si la descripción menciona: reloj + torre + Cartagena/Colombia/amurallada → El nombre DEBE ser "Torre del Reloj de Cartagena (Puerta de San Felipe)".
+- Si la descripción menciona: reloj + torre + Cartagena/Colombia/amurallada → "Torre del Reloj de Cartagena".
 - Si menciona: sonrisa enigmática + mujer renacentista → "La Gioconda (Mona Lisa)".
 - Si menciona: felino grande + melena + África → "León Africano".
+- Da el nombre propio más específico posible.
 
-Responde **SOLO** con este JSON válido. Sin markdown. Sin texto antes ni después:
+REGLAS DE STATS (EVALÚA REALMENTE EL OBJETO - CRÍTICO):
+
+Categoría ANIMAL [Fuerza, Agilidad, Peligro, Rareza]:
+- León/Tigre/Tiburón: Fuerza>85, Agilidad>80, Peligro>85
+- Elefante: Fuerza>95, Agilidad~40, Peligro~70
+- Gato doméstico: Fuerza~25, Agilidad~80, Peligro~10
+- Mosca/Mosquito: Fuerza~1, Agilidad~75, Peligro~30 (por enfermedades)
+
+Categoría COMIDA [Sabor, Picante, Salud, Rareza]:
+- Salud = NUTRICIÓN REAL (no qué tan rica está):
+  · Ensalada/fruta fresca: Salud 85-95
+  · Comida casera equilibrada: Salud 60-75
+  · Fast food (hamburguesa, pizza): Salud 15-30
+  · Comida FRITA (salchipapa, papas fritas): Salud 5-15
+  · Postres/dulces: Salud 10-25
+  · Sushi/comida japonesa: Salud 65-80
+- Sabor = popularidad + gusto general de quien lo come
+- Picante = nivel real de ají/picante (no picante=5-15, medio=40-60, extremo=85-100)
+- Rareza = qué tan difícil es conseguirlo (común en Colombia=10-30)
+- Ejemplos concretos:
+  · Salchipapa: [88, 45, 12, 28]
+  · Bandeja Paisa: [95, 20, 28, 35]
+  · Ceviche: [82, 35, 78, 42]
+  · Ají colombiano: [60, 95, 55, 50]
+  · Ensalada verde: [55, 5, 92, 15]
+
+Categoría LUGAR/ARTE [Historia, Belleza, Cultura, Rareza]:
+- Maravillas del Mundo/UNESCO: Historia>90, Cultura>85
+- Monumentos famosos: Todo >75
+- Torre Eiffel: [98, 95, 97, 25]
+- Parque local sin importancia: [20, 40, 15, 90]
+
+ANTES de escribir el JSON, piensa en el objeto real:
+1. ¿Un nutricionista aprobaría esto? (stat Salud de comidas)
+2. ¿Qué tan peligroso es encontrarse con esto? (stat Peligro de animales)
+3. ¿Cuánto esfuerzo cuesta visitarlo/conseguirlo? (stat Rareza)
+4. NUNCA pongas valores por defecto [85,80,75,70]. Piensa en el objeto específico.
+
+Responde SOLO con este JSON válido. Sin markdown. Sin texto antes ni después:
 
 {{
   "nombre": "Nombre propio y específico",
@@ -139,12 +178,6 @@ Responde **SOLO** con este JSON válido. Sin markdown. Sin texto antes ni despu�
   "evos": ["VarianteEspecífica1", "VarianteEspecífica2", "VarianteEspecífica3"]
 }}
 
-Reglas de stats según categoría:
-- ANIMAL: [Fuerza, Agilidad, Peligro, Rareza]
-- LUGAR/ARTE/PERSONA: [Historia, Belleza, Cultura, Rareza]
-- COMIDA: [Sabor, Picante, Salud, Rareza]
-
-Los stats de cosas famosas/imponentes deben ser >75.
 Las evos deben ser variantes reales o relacionadas del mismo tipo."""
 
 def parse_json(text):
@@ -204,19 +237,16 @@ with st.container():
                                           setattr(st.session_state, 'last_request_time', time.time()),
                                           setattr(st.session_state, 'request_count_today', st.session_state.request_count_today + 1))
                 rate_limit_check()
-
                 add_log(f"[PIPELINE] Source: {st.session_state.source}")
 
                 if st.session_state.source == "image" and st.session_state.last_image_bytes:
                     b64 = base64.b64encode(st.session_state.last_image_bytes).decode()
-                    add_log(f"[B64_LEN] {len(b64)} chars | starts with: {b64[:30]}...")
+                    add_log(f"[B64_LEN] {len(b64)} chars | starts: {b64[:25]}...")
 
-                    # PASO 1: Descripción visual pura
-                    add_log("[VISION-P1] Generando descripción técnica detallada...")
-                    prompt_p1 = get_visual_description_prompt()
+                    add_log("[P1] Generando descripción técnica detallada...")
                     response_p1 = client.chat.completions.create(
                         messages=[{"role": "user", "content": [
-                            {"type": "text", "text": prompt_p1},
+                            {"type": "text", "text": get_visual_description_prompt()},
                             {"type": "image_url", "image_url": {
                                 "url": f"data:image/jpeg;base64,{b64}",
                                 "detail": "auto"
@@ -228,56 +258,53 @@ with st.container():
                         timeout=30.0
                     )
                     descripcion_visual = response_p1.choices[0].message.content
-                    add_log(f"[P1-DESC] {len(descripcion_visual)} caracteres obtenidos")
+                    add_log(f"[P1-OK] {len(descripcion_visual)} chars obtenidos")
 
-                    # PASO 2: Generación de ficha estructurada
-                    add_log("[VISION-P2] Generando ficha TURIDEX estructurada...")
-                    prompt_p2 = get_structured_prompt(descripcion_visual)
+                    add_log("[P2] Generando ficha TURIDEX estructurada...")
                     response_p2 = client.chat.completions.create(
-                        messages=[{"role": "user", "content": prompt_p2}],
+                        messages=[{"role": "user", "content": get_structured_prompt(descripcion_visual)}],
                         model=SELECTED_MODEL,
                         temperature=0.1,
                         max_tokens=2048,
                         timeout=30.0
                     )
-
                     raw_content = response_p2.choices[0].message.content
-                    add_log(f"[RAW] {raw_content[:600]}...")
-                    add_log("[OK] Respuesta recibida")
-
-                    data = parse_json(raw_content)
-                    if data:
-                        st.session_state.current_item = data.get("nombre", st.session_state.current_item)
-                        st.session_state.current_category = data.get("categoria", "ANIMAL")
-                        st.session_state.current_data = data
-                        st.session_state.current_image = generate_image(st.session_state.current_item)
-                        add_log(f"[SUCCESS] Análisis completado → {st.session_state.current_item}")
-                    else:
-                        add_log("[ERROR] No se pudo parsear el JSON final")
-                        st.session_state.current_data = None
-                        st.session_state.current_item = "Error de análisis"
 
                 else:
-                    # Modo texto (variantes)
                     add_log(f"[TEXT] Analizando variante: {st.session_state.current_item}")
-                    prompt = get_prompt(is_image=False, item_name=st.session_state.current_item, 
-                                      category=st.session_state.current_category)
+                    prompt_text = f"""Responde SOLO con un JSON válido sobre "{st.session_state.current_item}". Sin markdown.
+
+{{
+  "nombre": "{st.session_state.current_item}",
+  "categoria": "{st.session_state.current_category or 'ANIMAL'}",
+  "desc": "descripción corta",
+  "historia": "dos párrafos extensos y bien documentados",
+  "stats": [85, 82, 75, 68],
+  "evos": ["Nombre1", "Nombre2", "Nombre3"]
+}}"""
                     response = client.chat.completions.create(
-                        messages=[{"role": "user", "content": prompt}],
+                        messages=[{"role": "user", "content": prompt_text}],
                         model=SELECTED_MODEL,
                         temperature=0.1,
                         max_tokens=2048,
                         timeout=30.0
                     )
                     raw_content = response.choices[0].message.content
-                    add_log(f"[RAW] {raw_content[:600]}...")
-                    data = parse_json(raw_content)
-                    if data:
-                        st.session_state.current_item = data.get("nombre", st.session_state.current_item)
-                        st.session_state.current_category = data.get("categoria", "ANIMAL")
-                        st.session_state.current_data = data
-                        st.session_state.current_image = generate_image(st.session_state.current_item)
-                        add_log(f"[SUCCESS] Análisis completado → {st.session_state.current_item}")
+
+                add_log(f"[RAW] {raw_content[:600]}...")
+                add_log("[OK] Respuesta recibida")
+
+                data = parse_json(raw_content)
+                if data:
+                    st.session_state.current_item = data.get("nombre", st.session_state.current_item)
+                    st.session_state.current_category = data.get("categoria", "ANIMAL")
+                    st.session_state.current_data = data
+                    st.session_state.current_image = generate_image(st.session_state.current_item)
+                    add_log(f"[SUCCESS] → {st.session_state.current_item}")
+                else:
+                    add_log("[ERROR] No se pudo parsear el JSON")
+                    st.session_state.current_data = None
+                    st.session_state.current_item = "Error de análisis"
 
             except Exception as e:
                 add_log(f"[CRITICAL] {str(e)}")
