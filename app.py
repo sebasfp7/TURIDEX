@@ -7,6 +7,7 @@ import re
 import json
 import requests
 from io import BytesIO
+from gtts import gTTS
 
 st.set_page_config(page_title="TURIDEX", layout="wide")
 
@@ -14,7 +15,7 @@ SELECTED_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 if 'current_item' not in st.session_state: st.session_state.current_item = None
 if 'current_category' not in st.session_state: st.session_state.current_category = None
-if 'historial' not in st.session_state: st.session_state.historial = []
+if 'current_data' not in st.session_state: st.session_state.current_data = None
 if 'log' not in st.session_state: st.session_state.log = []
 
 st.markdown("""
@@ -51,15 +52,12 @@ def resize_image(image_file):
     img.save(buffer, format="JPEG", quality=85, optimize=True)
     return buffer.getvalue()
 
-def generate_result_image(name, category):
+def generate_image(name):
     try:
-        style = "realistic wildlife photography, national geographic style" if "ANIMAL" in category else \
-                "professional food photography, studio lighting" if "COMIDA" in category else \
-                "epic cinematic landscape, 4k"
-        url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(f'{name}, {style}, clean background, high quality')}"
-        response = requests.get(url + "?width=700&height=500&nologo=true", timeout=10)
-        if response.status_code == 200:
-            return Image.open(BytesIO(response.content))
+        url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(f'{name}, realistic, high quality, clean background, national geographic style')}"
+        resp = requests.get(url + "?width=700&height=500&nologo=true", timeout=10)
+        if resp.status_code == 200:
+            return Image.open(BytesIO(resp.content))
     except:
         pass
     return None
@@ -71,22 +69,22 @@ def get_prompt(is_image=True, item_name=None, category=None):
 {
   "nombre": "Nombre claro",
   "categoria": "ANIMAL",
-  "desc": "Descripción corta",
-  "historia": "Dos párrafos cortos",
-  "stats": [85, 80, 75, 60],
-  "evos": ["NombreCorto1", "NombreCorto2", "NombreCorto3"]
+  "desc": "Descripción corta máximo 15 palabras",
+  "historia": "Dos párrafos cortos y reales",
+  "stats": [85, 80, 75, 65],
+  "evos": ["Tigre", "Leopardo", "Jaguar"]
 }
 
-Reglas: Si es ANIMAL usa stats de Fuerza, Agilidad, Peligro, Rareza. Si es COMIDA usa Sabor, Picante, Salud, Rareza. Las evos deben ser solo nombres cortos."""
+Si es ANIMAL usa stats de Fuerza, Agilidad, Peligro, Rareza. Las evos deben ser solo nombres cortos y del mismo tipo."""
     else:
-        return f"""Responde **solo** con JSON válido sobre "{item_name}":
+        return f"""Responde **solo** con un JSON válido sobre "{item_name}":
 
 {{
   "nombre": "{item_name}",
   "categoria": "{category}",
   "desc": "descripción corta",
   "historia": "dos párrafos cortos",
-  "stats": [80, 75, 70, 65],
+  "stats": [80, 85, 70, 60],
   "evos": ["Nombre1", "Nombre2", "Nombre3"]
 }}"""
 
@@ -97,14 +95,7 @@ def parse_json(text):
             return json.loads(match.group(1))
     except:
         pass
-    return {"nombre": "Error", "categoria": "ANIMAL", "desc": "Error de parsing", 
-            "historia": "No se pudo procesar.", "stats": [60,60,60,60], "evos": ["Var1","Var2","Var3"]}
-
-def get_labels(category):
-    cat = str(category).upper()
-    if "ANIMAL" in cat: return ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
-    elif any(x in cat for x in ["LUGAR", "ARTE", "PERSONA"]): return ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
-    else: return ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
+    return None
 
 with st.container():
     st.markdown("<div class='frame'>", unsafe_allow_html=True)
@@ -135,7 +126,7 @@ with st.container():
                 add_log("[1] Optimizando imagen...")
                 bytes_opt = resize_image(archivo)
                 b64 = base64.b64encode(bytes_opt).decode()
-                add_log("[2] Enviando al modelo llama-4-scout...")
+                add_log("[2] Enviando al modelo...")
                 
                 prompt = get_prompt(is_image=True)
                 response = client.chat.completions.create(
@@ -150,47 +141,65 @@ with st.container():
                 add_log("[3] Respuesta recibida")
                 data = parse_json(response.choices[0].message.content)
                 
-                st.session_state.current_item = data.get("nombre", "León")
-                st.session_state.current_category = data.get("categoria", "ANIMAL")
-                add_log(f"[SUCCESS] Análisis completado → {st.session_state.current_item}")
-                st.rerun()
+                if data:
+                    st.session_state.current_item = data.get("nombre", "León")
+                    st.session_state.current_category = data.get("categoria", "ANIMAL")
+                    st.session_state.current_data = data
+                    add_log(f"[SUCCESS] → {st.session_state.current_item}")
+                    st.rerun()
+                else:
+                    add_log("[ERROR] No se pudo parsear el JSON")
             except Exception as e:
                 st.session_state.log.append(f"[ERROR] {str(e)}")
                 st.error(f"Error: {str(e)}")
 
-        elif st.session_state.current_item:
-            # Resultado final
-            data = {"nombre": st.session_state.current_item, "categoria": st.session_state.current_category}
-            labels = get_labels(data["categoria"])
-            
+        elif st.session_state.current_item and st.session_state.current_data:
+            data = st.session_state.current_data
+            labels = get_labels(data.get("categoria", "ANIMAL"))
+            stats = data.get("stats", [75, 80, 65, 55])
+            variantes = data.get("evos", ["Tigre", "Leopardo", "Jaguar"])[:3]
+
             with col_img:
-                img = generate_result_image(data["nombre"], data["categoria"])
+                img = generate_image(data.get("nombre", "León"))
                 if img:
-                    st.image(img, use_container_width=True, caption=f"Visualización de {data['nombre']}")
+                    st.image(img, use_container_width=True, caption=data.get("nombre"))
                 else:
-                    st.info(f"🌄 Visualización de **{data['nombre']}**")
+                    st.image(archivo, use_container_width=True)  # fallback a imagen original
 
             with col_info:
-                st.markdown(f"## {data['nombre']}")
-                st.markdown(f"<div class='data-card'><b>Categoría:</b> {data['categoria']}</div>", unsafe_allow_html=True)
+                st.markdown(f"## {data.get('nombre', 'León')}")
+                st.markdown(f"<div class='data-card'><b>Categoría:</b> {data.get('categoria', 'ANIMAL')}</div>", unsafe_allow_html=True)
                 
                 st.markdown("### 📖 Historia")
-                st.info("Historia se mostrará en la siguiente mejora.")
+                st.markdown(f"<div class='historia-box'>{data.get('historia', 'Historia no disponible.')}</div>", unsafe_allow_html=True)
                 
                 st.markdown("### 📊 Puntos Base")
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.write(f"{labels[0]}: **75%**"); st.progress(0.75)
-                    st.write(f"{labels[1]}: **82%**"); st.progress(0.82)
+                    for i in range(2):
+                        st.write(f"{labels[i]}: **{stats[i]}%**")
+                        st.progress(stats[i]/100)
                 with c2:
-                    st.write(f"{labels[2]}: **68%**"); st.progress(0.68)
-                    st.write(f"{labels[3]}: **55%**"); st.progress(0.55)
+                    for i in range(2, 4):
+                        st.write(f"{labels[i]}: **{stats[i]}%**")
+                        st.progress(stats[i]/100)
                 
                 st.markdown("### 🔄 Variantes")
-                for var in ["Tigre", "Leopardo", "Jaguar"]:
+                for var in variantes:
                     if st.button(var, key=f"var_{var}", use_container_width=True):
                         st.session_state.current_item = var
-                        st.session_state.current_category = "ANIMAL"
+                        st.session_state.current_category = data.get("categoria", "ANIMAL")
+                        st.session_state.current_data = None
                         st.rerun()
+
+                # Audio
+                try:
+                    text_audio = f"{data.get('nombre')}. {data.get('desc', '')}. {data.get('historia', '')[:150]}"
+                    tts = gTTS(text_audio, lang='es')
+                    fp = io.BytesIO()
+                    tts.write_to_fp(fp)
+                    st.audio(fp)
+                except:
+                    pass
 
     st.markdown("</div>", unsafe_allow_html=True)
