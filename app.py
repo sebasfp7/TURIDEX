@@ -105,13 +105,14 @@ Reglas: Para animales como leones, stats deben ser altos (Fuerza, Agilidad, Peli
 }}"""
 
 def parse_json(text):
-    # Limpieza inicial
+    if not text or not isinstance(text, str):
+        return None
+    
+    # Limpieza agresiva
     text = text.strip()
-    # Eliminar bloques markdown comunes
-    text = re.sub(r'```json\s*', '', text)
-    text = re.sub(r'```\s*', '', text)
-    text = re.sub(r'^.*?(?=\{)', '', text, flags=re.DOTALL)  # Quitar texto antes del primer {
-    text = re.sub(r'\}.*?$', '}', text, flags=re.DOTALL)     # Quitar texto después del último }
+    text = re.sub(r'```json\s*|\s*```', '', text)           # Quitar bloques markdown
+    text = re.sub(r'^.*?(\{.*\})', r'\1', text, flags=re.DOTALL)  # Quitar texto antes del JSON
+    text = re.sub(r'(\{.*\}).*?$', r'\1', text, flags=re.DOTALL)  # Quitar texto después del JSON
     
     try:
         return json.loads(text)
@@ -192,11 +193,11 @@ with st.container():
                         timeout=30.0
                     )
 
-                raw = response.choices[0].message.content
-                add_log(f"[RAW] {raw[:600]}...")   # ← DEBUG QUE PEDISTE
+                raw_content = response.choices[0].message.content
+                add_log(f"[RAW] {raw_content[:600]}...")   # ← DEBUG QUE PEDISTE
                 add_log("[OK] Respuesta recibida")
 
-                data = parse_json(raw)
+                data = parse_json(raw_content)
                 if data:
                     st.session_state.current_item = data.get("nombre", st.session_state.current_item)
                     st.session_state.current_category = data.get("categoria", "ANIMAL")
@@ -205,10 +206,14 @@ with st.container():
                     add_log(f"[SUCCESS] Análisis completado → {st.session_state.current_item}")
                 else:
                     add_log("[ERROR] No se pudo parsear el JSON")
+                    st.session_state.current_data = None          # ← Arreglo #1
+                    st.session_state.current_item = "Error de análisis"
 
             except Exception as e:
                 add_log(f"[CRITICAL] {str(e)}")
                 st.error(f"Error crítico: {str(e)}")
+                st.session_state.current_data = None
+                st.session_state.current_item = "Error de análisis"
             finally:
                 st.session_state.needs_analysis = False
                 st.rerun()
