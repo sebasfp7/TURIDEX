@@ -44,7 +44,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown("<h1 class='title'>⚡ TURIDEX ⚡</h1>", unsafe_allow_html=True)
-st.markdown(f"<div class='header'>📡 MODELO: {SELECTED_MODEL} | 📊 Requests hoy: {st.session_state.request_count_today}</div>", unsafe_allow_html=True)
+st.markdown(f"<div class='header'>📡 MODELO: {SELECTED_MODEL}</div>", unsafe_allow_html=True)
 
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
@@ -80,7 +80,7 @@ def generate_image(name):
 
 def get_prompt(is_image=True, item_name=None, category=None):
     if is_image:
-        return """Responde **SOLO** con un JSON válido. No uses markdown. No escribas nada antes ni después del JSON. Empieza directamente con { y termina con }.
+        return """MIRA LA IMAGEN ADJUNTA atentamente. Identifica qué objeto, animal, comida o lugar aparece en la foto. NO inventes nada. Si ves un edificio con reloj, di edificio. Si ves un león, di león. Responde **SOLO** con un JSON válido. No uses markdown. No escribas nada antes ni después del JSON.
 
 {
   "nombre": "Nombre claro",
@@ -91,9 +91,9 @@ def get_prompt(is_image=True, item_name=None, category=None):
   "evos": ["Tigre", "Leopardo", "Jaguar"]
 }
 
-Reglas: Para animales como leones, stats deben ser altos (Fuerza, Agilidad, Peligro >75)."""
+Reglas: Para animales imponentes como leones, stats deben ser altos (Fuerza, Agilidad, Peligro >75)."""
     else:
-        return f"""Responde **solo** con un JSON válido. No uses markdown. No escribas nada antes ni después.
+        return f"""Responde **solo** con un JSON válido sobre "{item_name}". No uses markdown. No escribas nada antes ni después.
 
 {{
   "nombre": "{item_name}",
@@ -107,13 +107,10 @@ Reglas: Para animales como leones, stats deben ser altos (Fuerza, Agilidad, Peli
 def parse_json(text):
     if not text or not isinstance(text, str):
         return None
-    
-    # Limpieza agresiva
     text = text.strip()
-    text = re.sub(r'```json\s*|\s*```', '', text)           # Quitar bloques markdown
-    text = re.sub(r'^.*?(\{.*\})', r'\1', text, flags=re.DOTALL)  # Quitar texto antes del JSON
-    text = re.sub(r'(\{.*\}).*?$', r'\1', text, flags=re.DOTALL)  # Quitar texto después del JSON
-    
+    text = re.sub(r'```json\s*|\s*```', '', text)
+    text = re.sub(r'^.*?(\{.*\})', r'\1', text, flags=re.DOTALL)
+    text = re.sub(r'(\{.*\}).*?$', r'\1', text, flags=re.DOTALL)
     try:
         return json.loads(text)
     except:
@@ -168,13 +165,17 @@ with st.container():
                 add_log(f"[PIPELINE] Source: {st.session_state.source}")
 
                 if st.session_state.source == "image" and st.session_state.last_image_bytes:
-                    add_log(f"[VISION] Enviando {len(st.session_state.last_image_bytes)//1024}KB al modelo...")
                     b64 = base64.b64encode(st.session_state.last_image_bytes).decode()
+                    add_log(f"[B64_LEN] {len(b64)} chars | starts with: {b64[:30]}...")   # ← Diagnóstico que pediste
+                    add_log("[VISION] Enviando imagen al modelo Scout...")
                     prompt = get_prompt(is_image=True)
                     response = client.chat.completions.create(
                         messages=[{"role": "user", "content": [
                             {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
+                            {"type": "image_url", "image_url": {
+                                "url": f"data:image/jpeg;base64,{b64}",
+                                "detail": "auto"   # ← Arreglo #1 que pediste
+                            }}
                         ]}],
                         model=SELECTED_MODEL,
                         temperature=0.1,
@@ -194,7 +195,7 @@ with st.container():
                     )
 
                 raw_content = response.choices[0].message.content
-                add_log(f"[RAW] {raw_content[:600]}...")   # ← DEBUG QUE PEDISTE
+                add_log(f"[RAW] {raw_content[:600]}...")   # ← Arreglo #2 que pediste
                 add_log("[OK] Respuesta recibida")
 
                 data = parse_json(raw_content)
@@ -206,7 +207,7 @@ with st.container():
                     add_log(f"[SUCCESS] Análisis completado → {st.session_state.current_item}")
                 else:
                     add_log("[ERROR] No se pudo parsear el JSON")
-                    st.session_state.current_data = None          # ← Arreglo #1
+                    st.session_state.current_data = None
                     st.session_state.current_item = "Error de análisis"
 
             except Exception as e:
