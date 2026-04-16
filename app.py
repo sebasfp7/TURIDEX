@@ -11,7 +11,7 @@ st.write("Identifica lugares y comida con IA")
 
 # --- CONFIGURACIÓN DE IA ---
 # Aquí usaremos un truco de seguridad después, por ahora pon tu llave:
-genai.configure(api_key="TU_API_KEY_AQUI")
+genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 model = genai.GenerativeModel('gemini-1.5-flash')
 
 # --- INTERFAZ DE USUARIO ---
