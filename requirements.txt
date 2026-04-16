@@ -1,4 +1,6 @@
 streamlit
 groq
 pandas
-python-dotenv
+openpyxl
+pymupdf
+python-docx
