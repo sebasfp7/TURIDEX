@@ -63,9 +63,9 @@ def rate_limit_check():
 def resize_image(image_file):
     img = Image.open(image_file)
     if img.mode in ("RGBA", "P"): img = img.convert("RGB")
-    img.thumbnail((512, 512), Image.Resampling.LANCZOS)
+    img.thumbnail((768, 768), Image.Resampling.LANCZOS)   # ← Aumentado como pediste
     buffer = io.BytesIO()
-    img.save(buffer, format="JPEG", quality=70, optimize=True)
+    img.save(buffer, format="JPEG", quality=85, optimize=True)  # ← Quality 85
     return buffer.getvalue()
 
 def generate_image(name):
@@ -80,10 +80,10 @@ def generate_image(name):
 
 def get_prompt(is_image=True, item_name=None, category=None):
     if is_image:
-        return """MIRA LA IMAGEN ADJUNTA atentamente. IDENTIFICA el objeto, lugar, animal o comida ESPECÍFICO que aparece. 
-NO uses nombres genéricos como 'Edificio', 'Animal', 'Planta', 'Torre' o 'Reloj'. 
-Si es un monumento famoso, di SU NOMBRE PROPIO (ej: 'Torre del Reloj de Cartagena', 'Mona Lisa', 'León Blanco'). 
-Si no estás 100% seguro del nombre exacto, da la descripción más específica posible en lugar de un nombre genérico. 
+        return """MIRA LA IMAGEN ADJUNTA con máxima atención. IDENTIFICA el objeto, lugar, animal o comida ESPECÍFICO que aparece. 
+NO uses nombres genéricos como 'Edificio', 'Torre', 'Puerta', 'Animal', 'Planta' o 'Reloj'. 
+Si es un monumento famoso, di SU NOMBRE PROPIO EXACTO (ej: 'Torre del Reloj de Cartagena', 'Puerta de San Felipe', 'Mona Lisa', 'León Blanco'). 
+Si no estás 100% seguro del nombre oficial, da la descripción más específica posible en lugar de un nombre genérico. 
 NO inventes. Responde **SOLO** con un JSON válido. No uses markdown. No escribas nada antes ni después del JSON.
 
 {
@@ -161,7 +161,11 @@ with st.container():
     with col_info:
         if st.session_state.get('needs_analysis', False):
             try:
+                rate_limit_check = lambda: (time.sleep(max(0, 2.5 - (time.time() - st.session_state.last_request_time))), 
+                                          setattr(st.session_state, 'last_request_time', time.time()),
+                                          setattr(st.session_state, 'request_count_today', st.session_state.request_count_today + 1))
                 rate_limit_check()
+
                 add_log(f"[PIPELINE] Source: {st.session_state.source}")
 
                 if st.session_state.source == "image" and st.session_state.last_image_bytes:
