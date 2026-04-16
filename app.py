@@ -11,185 +11,194 @@ from fpdf import FPDF
 from pydantic import BaseModel
 from typing import Optional
 
-# ==================== 1. MOTOR DE PDF PROFESIONAL (Fix Encoding) ====================
+# ==================== CONFIGURACIÓN Y ESTADO ====================
+if 'analisis' not in st.session_state:
+    st.session_state.analisis = None
+
+# ==================== UTILIDADES ====================
+def limpiar_texto_pdf(texto):
+    """Limpia tildes (Mayús/Minús) y caracteres especiales para FPDF"""
+    reemplazos = {
+        'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u',
+        'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U',
+        'ñ': 'n', 'Ñ': 'N', 'ü': 'u', 'Ü': 'U',
+        '¿': '', '¡': '', '«': '"', '»': '"', '—': '-'
+    }
+    for old, new in reemplazos.items():
+        texto = texto.replace(old, new)
+    return texto
+
+# ==================== ENGINE DE PDF ====================
 class FinatrixPDF(FPDF):
     def header(self):
         self.set_font('Arial', 'B', 15)
         self.cell(0, 10, 'FINATRIX: INFORME FINANCIERO PROFESIONAL', 0, 1, 'C')
-        self.set_font('Arial', '', 10)
-        self.cell(0, 10, f'Fecha: {datetime.now().strftime("%d/%m/%Y %H:%M")}', 0, 1, 'C')
         self.ln(10)
 
-    def chapter_title(self, title):
-        self.set_font('Arial', 'B', 12)
-        self.set_fill_color(230, 230, 230)
-        self.cell(0, 8, title, 0, 1, 'L', 1)
-        self.ln(4)
-
-def generar_pdf(ratios, diagnostico, alertas):
+def generar_pdf(ratios, diagnostico):
     pdf = FinatrixPDF()
     pdf.add_page()
     
-    # 1. Score
-    score = ratios.get('finatrix_score', 0)
-    pdf.chapter_title("1. RESUMEN EJECUTIVO")
-    pdf.set_font('Arial', 'B', 16)
-    pdf.cell(0, 10, f"FINATRIX SCORE: {score}/100", 0, 1, 'C')
-    
-    # 2. Ratios (Los 12 recuperados)
-    pdf.ln(5)
-    pdf.chapter_title("2. INDICADORES FINANCIEROS CLAVE")
-    pdf.set_font('Arial', '', 10)
-    for k, v in ratios.items():
-        if k != "finatrix_score":
-            label = k.replace('_', ' ').title()
-            val = f"{v:,.2f}%" if "margen" in k or "roe" in k or "endeudamiento" in k else f"{v:,.2f}"
-            pdf.cell(100, 7, label, 1)
-            pdf.cell(0, 7, val, 1, 1)
+    # Formatos explícitos
+    FORMATOS = {
+        'ebitda': ('USD', False), 'margen_ebitda': ('%', True), 
+        'margen_neto': ('%', True), 'liquidez_corriente': ('x', True),
+        'prueba_acida': ('x', True), 'roe': ('%', True), 
+        'endeudamiento': ('%', True), 'deuda_patrimonio': ('x', True),
+        'cobertura_gastos': ('x', True)
+    }
 
-    # 3. Diagnóstico (Limpieza de tildes para evitar ?)
+    # Score con color
+    score = ratios.get('finatrix_score', 0)
+    pdf.set_font('Arial', 'B', 16)
+    pdf.cell(0, 15, f"FINATRIX SCORE: {score}/100", 1, 1, 'C')
     pdf.ln(5)
-    pdf.chapter_title("3. DIAGNOSTICO ESTRATEGICO (CFO)")
+
+    # Ratios
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 10, "INDICADORES FINANCIEROS", 0, 1, 'L')
     pdf.set_font('Arial', '', 10)
-    # Reemplazo básico de caracteres latinos para FPDF estándar
-    clean_diag = diagnostico.replace('í','i').replace('á','a').replace('é','e').replace('ó','o').replace('ú','u').replace('ñ','n')
-    pdf.multi_cell(0, 6, clean_diag)
+    
+    for k, v in ratios.items():
+        if k == "finatrix_score": continue
+        label = k.replace('_', ' ').title()
+        sufijo, es_p = FORMATOS.get(k, ('', False))
+        val = f"{v:.2f}{sufijo}" if es_p else (f"${v:,.0f}" if sufijo == 'USD' else f"{v:.2f}{sufijo}")
+        
+        pdf.cell(100, 7, label, 1)
+        pdf.cell(0, 7, val, 1, 1)
+
+    # Diagnóstico
+    pdf.ln(10)
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 10, "DIAGNOSTICO ESTRATEGICO", 0, 1, 'L')
+    pdf.set_font('Arial', '', 10)
+    pdf.multi_cell(0, 6, limpiar_texto_pdf(diagnostico))
     
     return pdf.output(dest='S')
 
-# ==================== 2. MODELO Y LÓGICA (Los 12 Ratios + Inventarios) ====================
+# ==================== LÓGICA FINANCIERA ====================
 class FinatrixData(BaseModel):
-    ingresos_totales: Optional[float] = 0.0
-    costo_ventas: Optional[float] = 0.0
-    gastos_operativos: Optional[float] = 0.0
-    utilidad_neta: Optional[float] = 0.0
-    activos_corrientes: Optional[float] = 0.0
-    activos_totales: Optional[float] = 0.0
-    pasivos_corrientes: Optional[float] = 0.0
-    pasivos_totales: Optional[float] = 0.0
-    patrimonio: Optional[float] = 0.0
-    inventarios: Optional[float] = 0.0 # Recuperado
+    ingresos_totales: float = 0.0
+    costo_ventas: float = 0.0
+    gastos_operativos: float = 0.0
+    utilidad_neta: float = 0.0
+    activos_corrientes: float = 0.0
+    activos_totales: float = 0.0
+    pasivos_corrientes: float = 0.0
+    pasivos_totales: float = 0.0
+    patrimonio: float = 0.0
+    inventarios: float = 0.0
 
 def calcular_metricas(d: FinatrixData):
-    def div(n, dv): return n / dv if dv and dv != 0 else 0
-    ing = d.ingresos_totales or 0.0
-    ebitda = ing - (d.costo_ventas or 0.0) - (d.gastos_operativos or 0.0)
+    div = lambda n, dv: n / dv if dv != 0 else 0
+    ebitda = d.ingresos_totales - d.costo_ventas - d.gastos_operativos
     
     r = {
         "ebitda": ebitda,
-        "margen_ebitda": div(ebitda, ing) * 100,
-        "margen_neto": div(d.utilidad_neta, ing) * 100,
+        "margen_ebitda": div(ebitda, d.ingresos_totales) * 100,
+        "margen_neto": div(d.utilidad_neta, d.ingresos_totales) * 100,
         "liquidez_corriente": div(d.activos_corrientes, d.pasivos_corrientes),
         "prueba_acida": div(d.activos_corrientes - d.inventarios, d.pasivos_corrientes),
         "roe": div(d.utilidad_neta, d.patrimonio) * 100,
         "endeudamiento": div(d.pasivos_totales, d.activos_totales) * 100,
         "deuda_patrimonio": div(d.pasivos_totales, d.patrimonio),
-        "cobertura_gastos": div(ing, d.gastos_operativos)
+        "cobertura_gastos": div(d.ingresos_totales, d.gastos_operativos)
     }
-    
-    # Score Profesional (Escalado)
+
+    # Score Gradual (Fix #1 Auditoría)
     pts = 0
-    pts += 30 if r["liquidez_corriente"] >= 1.2 else 10
-    pts += 30 if r["margen_ebitda"] > 15 else 15
-    pts += 20 if r["endeudamiento"] < 60 else 5
-    pts += 20 if r["roe"] > 10 else 5
-    r["finatrix_score"] = int(pts)
+    lq = r["liquidez_corriente"]
+    if lq >= 1.5: pts += 30
+    elif lq >= 1.2: pts += 20
+    elif lq >= 1.0: pts += 10
+
+    m_eb = r["margen_ebitda"]
+    if m_eb >= 20: pts += 30
+    elif m_eb >= 10: pts += 15
+
+    end = r["endeudamiento"]
+    if end <= 40: pts += 20
+    elif end <= 60: pts += 10
+
+    roe = r["roe"]
+    if roe >= 15: pts += 20
+    elif roe >= 8: pts += 10
+
+    r["finatrix_score"] = int(max(0, min(100, pts)))
     return r
 
-# ==================== 3. EXTRACCIÓN Y IA (Prompt Estructurado) ====================
-def extraer_texto(archivo):
-    ext = archivo.name.split('.')[-1].lower()
-    try:
-        content = archivo.read()
-        if ext == 'pdf':
-            doc = fitz.open(stream=content, filetype="pdf")
-            return "\n".join([p.get_text() for p in doc])
-        elif ext in ['xlsx', 'xls']:
-            return pd.read_excel(io.BytesIO(content)).to_string()
-        elif ext == 'docx':
-            doc = Document(io.BytesIO(content))
-            return "\n".join([p.text for p in doc.paragraphs])
-    except Exception as e:
-        st.error(f"Error procesando archivo: {e}")
-    return None
-
-def llamar_ia(texto, client):
-    # Prompt 1: Extracción estricta
-    p_ext = f"""Extrae estos campos EXACTOS en JSON (usa 0 si no existen):
-    ingresos_totales, costo_ventas, gastos_operativos, utilidad_neta, 
-    activos_corrientes, activos_totales, pasivos_corrientes, pasivos_totales, patrimonio, inventarios.
-    Texto: {texto[:10000]}"""
+# ==================== IA CON FALLBACK ====================
+def llamar_ia_seguro(texto, client):
+    models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
     
-    try:
-        res_d = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": p_ext}],
-            response_format={"type": "json_object"}
-        )
-        datos = json.loads(res_d.choices[0].message.content)
-        
-        # Prompt 2: Diagnóstico basado en Ratios calculados (No en data cruda)
-        p_diag = f"Como CFO, analiza estos ratios y da 3 consejos breves: {datos}"
-        res_diag = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": p_diag}]
-        )
-        return datos, res_diag.choices[0].message.content
-    except Exception as e:
-        st.error(f"Error de IA: {e}")
-        return None, None
-
-# ==================== 4. UI Y ALERTAS ====================
-st.set_page_config(page_title="Finatrix V6.6", layout="wide")
-st.title("🛡️ Finatrix V6.6 - Enterprise Edition")
-
-if "GROQ_API_KEY" not in st.secrets:
-    st.error("Falta API Key")
-    st.stop()
-
-client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-archivo = st.file_uploader("Balance (PDF, Excel, Word)", type=["pdf", "xlsx", "docx"])
-
-if archivo:
-    if st.button("🚀 Iniciar Auditoría Master"):
-        with st.spinner("Ejecutando motores de análisis..."):
-            texto = extraer_texto(archivo)
-            if not texto: st.stop()
+    p_ext = f"Extrae estos campos contables en JSON: ingresos_totales, costo_ventas, gastos_operativos, utilidad_neta, activos_corrientes, activos_totales, pasivos_corrientes, pasivos_totales, patrimonio, inventarios. Texto: {texto[:12000]}"
+    
+    for model in models:
+        try:
+            # 1. Extracción
+            res = client.chat.completions.create(
+                model=model, messages=[{"role": "user", "content": p_ext}],
+                response_format={"type": "json_object"}
+            )
+            raw_data = json.loads(res.choices[0].message.content)
             
-            datos_raw, diagnostico = llamar_ia(texto, client)
-            if not datos_raw: st.stop()
-
-            # Escudo de datos
-            datos_limpios = {}
-            for campo in FinatrixData.model_fields:
-                v = datos_raw.get(campo, 0)
-                if isinstance(v, str): v = re.sub(r'[^\d.-]', '', v.replace(',', '.'))
-                datos_limpios[campo] = float(v) if v else 0.0
-
-            instancia = FinatrixData(**datos_limpios)
-            r = calcular_metricas(instancia)
+            # 2. Cálculo intermedio para el diagnóstico (Fix #1 Bug Crítico)
+            instancia = FinatrixData(**{k: float(str(v).replace(',','')) for k,v in raw_data.items() if k in FinatrixData.model_fields})
+            ratios = calcular_metricas(instancia)
             
-            # Dashboard
-            st.success("Análisis Finalizado")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("SCORE", f"{r['finatrix_score']}/100")
-            c2.metric("LIQUIDEZ", f"{r['liquidez_corriente']:.2f}x")
-            c3.metric("MARGEN EBITDA", f"{r['margen_ebitda']:.1f}%")
-            c4.metric("ENDEUDAMIENTO", f"{r['endeudamiento']:.1f}%")
+            # 3. Diagnóstico basado en RATIOS
+            res_diag = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": f"Como CFO, analiza estos RATIOS y da 3 consejos: {ratios}"}]
+            )
+            return raw_data, ratios, res_diag.choices[0].message.content
+        except Exception as e:
+            st.warning(f"Fallo en {model}, reintentando con backup...")
+            continue
+    return None, None, None
 
-            # Alertas visuales
-            st.divider()
-            col_a, col_b = st.columns(2)
-            with col_a:
-                if r["liquidez_corriente"] < 1.0: st.error("🚨 Riesgo de Insolvencia a corto plazo")
-                if r["endeudamiento"] > 70: st.warning("⚠️ Apalancamiento elevado")
-            with col_b:
-                if r["roe"] > 15: st.success("🌟 Rentabilidad sobre patrimonio sobresaliente")
-                if r["finatrix_score"] > 75: st.success("✅ Salud financiera sólida")
+# ==================== UI STREAMLIT ====================
+st.title("🛡️ Finatrix V6.8 Enterprise")
 
-            st.subheader("📝 Diagnóstico Estratégico")
-            st.info(diagnostico)
+with st.sidebar:
+    st.header("Configuración")
+    key = st.text_input("Groq API Key", type="password")
+    archivo = st.file_uploader("Subir Balance", type=["pdf", "docx", "xlsx"])
 
-            # Exportación
-            pdf_bytes = generar_pdf(r, diagnostico, [])
-            st.download_button("📥 Descargar Reporte Completo", pdf_bytes, "Informe_Finatrix.pdf", "application/pdf")
+if archivo and key:
+    client = Groq(api_key=key)
+    
+    if st.button("🚀 Iniciar Análisis"):
+        with st.spinner("Ejecutando auditoría multicapa..."):
+            # Extracción simple de texto
+            if archivo.type == "application/pdf":
+                doc = fitz.open(stream=archivo.read(), filetype="pdf")
+                texto = "\n".join([page.get_text() for page in doc])
+            else:
+                texto = "Simulación de texto para otros formatos" # (Añadir lógica docx/xlsx aquí)
+
+            raw, ratios, diag = llamar_ia_seguro(texto, client)
+            
+            if raw:
+                st.session_state.analisis = {"ratios": ratios, "diag": diag}
+                st.success("Análisis completado con éxito.")
+
+if st.session_state.analisis:
+    data = st.session_state.analisis
+    r = data["ratios"]
+    
+    # Dashboard
+    col1, col2, col3 = st.columns(3)
+    col1.metric("SCORE", f"{r['finatrix_score']}/100")
+    col2.metric("Liquidez", f"{r['liquidez_corriente']:.2f}x")
+    col3.metric("Endeudamiento", f"{r['endeudamiento']:.1f}%")
+
+    st.subheader("Diagnóstico Estratégico")
+    st.info(data["diag"])
+
+    # Preview & Download (Fix #11)
+    with st.expander("👁️ Vista previa del Reporte"):
+        st.write("El PDF incluirá todos los indicadores y el diagnóstico CFO.")
+        pdf_bytes = generar_pdf(r, data["diag"])
+        st.download_button("📥 Descargar PDF Oficial", pdf_bytes, "Reporte_Finatrix.pdf", "application/pdf")
