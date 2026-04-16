@@ -1,71 +1,69 @@
 import streamlit as st
-import pandas as pd
-import fitz  # Importante: es PyMuPDF para leer PDFs
-from docx import Document
 from groq import Groq
-import io
+from schemas import DatosFinancieros # Importamos tu contrato
+import json
 
-# 1. Configuración inicial
-st.set_page_config(page_title="Finatrix AI", layout="wide")
+# --- CONFIGURACIÓN DE MODELOS ---
+MODELO_VISION = "meta-llama/llama-4-scout-17b-16e-instruct"
+MODELO_TEXTO = "meta-llama/llama-3.3-70b-versatile"
 
-# Inicializamos el cliente de la IA (Asegúrate de tener la llave en Secrets)
-if "GROQ_API_KEY" in st.secrets:
-    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-else:
-    st.error("Falta la llave GROQ_API_KEY en los Secrets de Streamlit")
+client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-# 2. Función para extraer texto de diferentes archivos
-def extraer_texto(archivo_subido):
-    nombre_archivo = archivo_subido.name.lower()
-    
+def analizar_con_ia(texto_o_imagen, es_imagen=False):
     try:
-        if nombre_archivo.endswith('.xlsx') or nombre_archivo.endswith('.xls'):
-            df = pd.read_excel(archivo_subido)
-            return df.to_string()
-            
-        elif nombre_archivo.endswith('.docx'):
-            doc = Document(archivo_subido)
-            return "\n".join([p.text for p in doc.paragraphs])
-            
-        elif nombre_archivo.endswith('.pdf'):
-            # Leemos PDF digital
-            doc_pdf = fitz.open(stream=archivo_subido.read(), filetype="pdf")
-            texto = ""
-            for pagina in doc_pdf:
-                texto += pagina.get_text()
-            return texto
-            
-        return None # Si es imagen o algo que no procesamos aquí
+        # PASO 1: Extracción Estructurada (JSON)
+        prompt_extraccion = """
+        Extrae los datos financieros y responde UNICAMENTE en formato JSON:
+        {
+            "ingresos_totales": 0.0,
+            "costo_ventas": 0.0,
+            "gastos_operativos": 0.0,
+            "activos_totales": 0.0,
+            "pasivos_totales": 0.0,
+            "patrimonio": 0.0
+        }
+        """
+        
+        # Aquí llamarías a Scout si es_imagen=True o Llama si es texto
+        # Simulamos la respuesta de la IA para el ejemplo
+        respuesta_ia = '{"ingresos_totales": 1000, "costo_ventas": 500, "gastos_operativos": 200, "activos_totales": 2000, "pasivos_totales": 800, "patrimonio": 1200}'
+        
+        datos_json = json.loads(respuesta_ia)
+        
+        # VALIDACIÓN CON PYDANTIC (Punto #1 de tu lista)
+        datos_validados = DatosFinancieros(**datos_json)
+        return datos_validados
+
     except Exception as e:
-        st.error(f"Error procesando el archivo: {e}")
+        st.error(f"⚠️ Error en el procesamiento: {e}")
         return None
 
-# 3. Interfaz de Usuario
-st.title("📊 Finatrix: Multi-Analista")
+# --- UI PRINCIPAL ---
+st.title("🛡️ Finatrix V2.0 - Core Profesional")
 
-archivo = st.file_uploader("Sube tu estado financiero (PDF, Excel, Word o Imagen)", 
-                          type=["pdf", "xlsx", "xls", "docx", "png", "jpg", "jpeg"])
+archivo = st.file_uploader("Sube tu documento", type=["pdf", "xlsx", "png", "jpg"])
 
 if archivo:
-    # Intentamos extraer texto directamente (más rápido y gratis)
-    texto_extraido = extraer_texto(archivo)
-    
-    if texto_extraido and len(texto_extraido.strip()) > 10:
-        st.success("✅ Texto detectado digitalmente.")
+    with st.spinner("Ejecutando Pipeline de Inteligencia..."):
+        # 1. Extraer (Aquí usarías tu lógica multiformato anterior)
+        datos = analizar_con_ia("contenido del archivo")
         
-        if st.button("Analizar con Llama-3.3 (Texto)"):
-            with st.spinner("Analizando datos..."):
-                # Aquí usamos el modelo de texto puro (Más barato y rápido)
-                chat = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[{"role": "user", "content": f"Analiza estos datos contables y dame un diagnóstico: {texto_extraido}"}]
-                )
-                st.markdown("### 📋 Diagnóstico")
-                st.write(chat.choices[0].message.content)
-    else:
-        # Si no hay texto, es una imagen o PDF escaneado
-        st.warning("📸 No se detectó texto digital. Se requiere usar Llama-4-Scout (Visión).")
-        
-        if st.button("Escanear Imagen con Scout"):
-            st.info("Aquí iría la llamada a tu modelo Scout para procesar la imagen...")
-            # Aquí pondrías tu código de Scout que ya tenías funcionando
+        if datos:
+            st.success("✅ Datos Validados")
+            
+            # --- CÁLCULOS SEGUROS (Punto #6 de tu lista) ---
+            # Al estar validados por Pydantic, sabemos que son números y no strings
+            ebitda = datos.ingresos_totales - datos.costo_ventas - datos.gastos_operativos
+            margen_ebitda = (ebitda / datos.ingresos_totales) * 100 if datos.ingresos_totales > 0 else 0
+            solvencia = datos.activos_totales / datos.pasivos_totales if datos.pasivos_totales > 0 else 0
+
+            # --- VISUALIZACIÓN PROFESIONAL ---
+            col1, col2, col3 = st.columns(3)
+            col1.metric("EBITDA", f"${ebitda:,.2f}")
+            col2.metric("Margen EBITDA", f"{margen_ebitda:.1f}%")
+            col3.metric("Ratio Solvencia", f"{solvencia:.2f}")
+
+            # PASO 2: Diagnóstico con Modelo de Texto (Punto #4 de tu lista)
+            if st.button("Generar Diagnóstico Estratégico"):
+                # Aquí llamarías a MODELO_TEXTO (Llama 3.3 70B)
+                st.info("Generando análisis profundo con Llama 3.3...")
