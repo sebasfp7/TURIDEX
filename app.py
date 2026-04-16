@@ -14,51 +14,32 @@ st.set_page_config(page_title="TURIDEX", layout="wide")
 
 SELECTED_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
-# ============================================
-# SESSION STATE
-# ============================================
-defaults = {
-    'current_item': None,
-    'current_category': None,
-    'current_data': None,
-    'last_image_bytes': None,
-    'original_image': None,
-    'current_image': None,
-    'current_audio': None,
-    'needs_analysis': False,
-    'source': None,
-    'log': [],
-    'last_request_time': 0,
-    'request_count_today': 0,
-}
+if 'current_item' not in st.session_state: st.session_state.current_item = None
+if 'current_category' not in st.session_state: st.session_state.current_category = None
+if 'current_data' not in st.session_state: st.session_state.current_data = None
+if 'last_image_bytes' not in st.session_state: st.session_state.last_image_bytes = None
+if 'original_image' not in st.session_state: st.session_state.original_image = None
+if 'current_image' not in st.session_state: st.session_state.current_image = None
+if 'current_audio' not in st.session_state: st.session_state.current_audio = None
+if 'needs_analysis' not in st.session_state: st.session_state.needs_analysis = False
+if 'source' not in st.session_state: st.session_state.source = None
+if 'log' not in st.session_state: st.session_state.log = []
+if 'last_request_time' not in st.session_state: st.session_state.last_request_time = 0
+if 'request_count_today' not in st.session_state: st.session_state.request_count_today = 0
 
-for key, val in defaults.items():
-    if key not in st.session_state:
-        st.session_state[key] = val
-
-# ============================================
-# ESTILOS
-# ============================================
 st.markdown("""
 <style>
     .stApp {background-image: url('https://vignette.wikia.nocookie.net/es.pokemon/images/c/c1/Mapa_de_Kanto_GSC.png/revision/latest?cb=20191215132219');
             background-size: cover; background-attachment: fixed;}
     .frame {background: rgba(255,255,255,0.92); backdrop-filter: blur(12px);
             border: 4px solid #DC0A2D; border-radius: 20px; padding: 25px;}
-    .title {color: #FFDE00 !important; font-size: 3.8em; text-align:center; text-shadow: 3px 3px 6px rgba(0,0,0,0.7);}
-    .header {background: linear-gradient(90deg, #000, #1a1a2e, #000); color: #0F0; padding: 12px; border-radius: 8px;
-             text-align: center; font-size: 1.35em; font-family: monospace; border: 2px solid #0F0; box-shadow: 0 0 15px rgba(0,255,0,0.3);}
-    .log-box {background:#111; color:#0F0; padding:8px 12px; border-radius:5px; font-family:monospace; margin:4px 0; border-left:3px solid #0F0;}
+    .title {color: #FFDE00 !important; font-size: 3.8em; text-align:center;}
+    .header {background:#000; color:#0F0; padding:12px; border-radius:8px; text-align:center; font-size:1.4em;}
+    .log-box {background:#111; color:#0F0; padding:8px; border-radius:5px; font-family:monospace; margin:6px 0;}
     .data-card, .historia-box {background:rgba(255,255,255,0.95); backdrop-filter:blur(10px); padding:18px; border-radius:10px; margin:12px 0;}
     .variant-btn {background:linear-gradient(135deg,#FFCC00,#FFEB3B) !important; color:black !important; font-weight:bold !important;
-                  border:3px solid black !important; border-radius:15px !important; padding:14px !important; margin:6px 0 !important;
-                  transition:all 0.3s ease !important;}
-    .variant-btn:hover {transform:translateY(-4px) scale(1.02); box-shadow:0 8px 15px rgba(220,10,45,0.5);}
-    .cat-badge {display:inline-block; padding:6px 16px; border-radius:20px; font-weight:bold; font-size:0.95em;}
-    .cat-ANIMAL {background:#e8f5e9; color:#2e7d32; border:2px solid #4caf50;}
-    .cat-LUGAR {background:#e3f2fd; color:#1565c0; border:2px solid #2196f3;}
-    .cat-COMIDA {background:#fff3e0; color:#e65100; border:2px solid #ff9800;}
-    .cat-ARTE {background:#f3e5f5; color:#7b1fa2; border:2px solid #9c27b0;}
+                  border:3px solid black !important; border-radius:15px !important; padding:14px !important; margin:6px 0 !important;}
+    .variant-btn:hover {transform:translateY(-4px); box-shadow:0 8px 15px rgba(220,10,45,0.5);}
 </style>
 """, unsafe_allow_html=True)
 
@@ -70,8 +51,7 @@ client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 def add_log(msg):
     timestamp = time.strftime("%H:%M:%S")
     st.session_state.log.append(f"[{timestamp}] {msg}")
-    if len(st.session_state.log) > 15:
-        st.session_state.log.pop(0)
+    if len(st.session_state.log) > 15: st.session_state.log.pop(0)
 
 def rate_limit_check():
     now = time.time()
@@ -100,20 +80,20 @@ def generate_image(name):
 
 def get_prompt(is_image=True, item_name=None, category=None):
     if is_image:
-        return """Analiza la imagen y responde **SOLO** con un JSON válido. La historia debe ser larga y detallada (mínimo 180 palabras).
+        return """Responde **SOLO** con un JSON válido. No uses markdown. No escribas nada antes ni después del JSON. Empieza directamente con { y termina con }.
 
 {
   "nombre": "Nombre claro",
   "categoria": "ANIMAL",
   "desc": "Descripción corta máximo 15 palabras",
-  "historia": "Dos párrafos extensos con origen, hábitat, comportamiento, curiosidades e importancia cultural",
+  "historia": "Dos párrafos largos y detallados (mínimo 180 palabras total) con origen, hábitat, comportamiento, curiosidades e importancia",
   "stats": [88, 85, 78, 70],
   "evos": ["Tigre", "Leopardo", "Jaguar"]
 }
 
-Reglas: Para animales imponentes como leones, stats deben ser altos (Fuerza, Agilidad, Peligro >75). Las evos deben ser solo nombres cortos del mismo tipo."""
+Reglas: Para animales como leones, stats deben ser altos (Fuerza, Agilidad, Peligro >75)."""
     else:
-        return f"""Responde **solo** con un JSON válido sobre "{item_name}":
+        return f"""Responde **solo** con un JSON válido. No uses markdown. No escribas nada antes ni después.
 
 {{
   "nombre": "{item_name}",
@@ -125,12 +105,23 @@ Reglas: Para animales imponentes como leones, stats deben ser altos (Fuerza, Agi
 }}"""
 
 def parse_json(text):
+    # Limpieza inicial
+    text = text.strip()
+    # Eliminar bloques markdown comunes
+    text = re.sub(r'```json\s*', '', text)
+    text = re.sub(r'```\s*', '', text)
+    text = re.sub(r'^.*?(?=\{)', '', text, flags=re.DOTALL)  # Quitar texto antes del primer {
+    text = re.sub(r'\}.*?$', '}', text, flags=re.DOTALL)     # Quitar texto después del último }
+    
     try:
-        match = re.search(r'\{.*\}', text, re.DOTALL | re.MULTILINE)
-        if match:
-            return json.loads(match.group(0))
+        return json.loads(text)
     except:
-        pass
+        try:
+            match = re.search(r'(\{.*\})', text, re.DOTALL)
+            if match:
+                return json.loads(match.group(1))
+        except:
+            pass
     return None
 
 def get_labels(category):
@@ -167,12 +158,16 @@ with st.container():
 
     with col_info:
         if st.session_state.get('needs_analysis', False):
-            rate_limit_check()
             try:
+                rate_limit_check = lambda: (time.sleep(max(0, 2.5 - (time.time() - st.session_state.last_request_time))), 
+                                          setattr(st.session_state, 'last_request_time', time.time()),
+                                          setattr(st.session_state, 'request_count_today', st.session_state.request_count_today + 1))
+                rate_limit_check()
+
                 add_log(f"[PIPELINE] Source: {st.session_state.source}")
 
                 if st.session_state.source == "image" and st.session_state.last_image_bytes:
-                    add_log(f"[VISION] Enviando {len(st.session_state.last_image_bytes)//1024}KB al modelo Scout...")
+                    add_log(f"[VISION] Enviando {len(st.session_state.last_image_bytes)//1024}KB al modelo...")
                     b64 = base64.b64encode(st.session_state.last_image_bytes).decode()
                     prompt = get_prompt(is_image=True)
                     response = client.chat.completions.create(
@@ -182,7 +177,7 @@ with st.container():
                         ]}],
                         model=SELECTED_MODEL,
                         temperature=0.1,
-                        max_tokens=1200,
+                        max_tokens=2048,
                         timeout=30.0
                     )
                 else:
@@ -193,19 +188,21 @@ with st.container():
                         messages=[{"role": "user", "content": prompt}],
                         model=SELECTED_MODEL,
                         temperature=0.1,
-                        max_tokens=1000,
+                        max_tokens=2048,
                         timeout=30.0
                     )
 
+                raw = response.choices[0].message.content
+                add_log(f"[RAW] {raw[:600]}...")   # ← DEBUG QUE PEDISTE
                 add_log("[OK] Respuesta recibida")
-                data = parse_json(response.choices[0].message.content)
 
+                data = parse_json(raw)
                 if data:
                     st.session_state.current_item = data.get("nombre", st.session_state.current_item)
                     st.session_state.current_category = data.get("categoria", "ANIMAL")
                     st.session_state.current_data = data
                     st.session_state.current_image = generate_image(st.session_state.current_item)
-                    add_log(f"[SUCCESS] → {st.session_state.current_item}")
+                    add_log(f"[SUCCESS] Análisis completado → {st.session_state.current_item}")
                 else:
                     add_log("[ERROR] No se pudo parsear el JSON")
 
@@ -230,8 +227,7 @@ with st.container():
 
             with col_info:
                 st.markdown(f"## {data.get('nombre', 'León')}")
-                cat_class = f"cat-{data.get('categoria', 'ANIMAL')}"
-                st.markdown(f"<div class='data-card'><span class='cat-badge {cat_class}'>{data.get('categoria', 'ANIMAL')}</span></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='data-card'><b>Categoría:</b> {data.get('categoria', 'ANIMAL')}</div>", unsafe_allow_html=True)
                 
                 st.markdown("### 📖 Historia")
                 st.markdown(f"<div class='historia-box'>{data.get('historia', 'Sin historia disponible.')}</div>", unsafe_allow_html=True)
