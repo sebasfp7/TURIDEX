@@ -6,10 +6,9 @@ from gtts import gTTS
 import io
 import re
 
-# --- CONFIGURACIÓN DE PÁGINA ---
+# --- CONFIGURACIÓN ---
 st.set_page_config(page_title="TURIDEX", layout="wide")
 
-# --- CSS DE IDENTIDAD Y CONTRASTE ---
 st.markdown("""
 <style>
     .stApp {
@@ -17,11 +16,10 @@ st.markdown("""
         background-size: cover; background-position: center; background-attachment: fixed;
     }
     .pokedex-frame {
-        background-color: rgba(255, 255, 255, 0.9);
+        background-color: rgba(255, 255, 255, 0.92);
         border: 4px solid #DC0A2D;
         border-radius: 20px;
         padding: 25px;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
     }
     .pokedex-title-box {
         background-color: #000000;
@@ -31,17 +29,9 @@ st.markdown("""
         text-align: center;
         margin-bottom: 20px;
     }
-    .pokedex-title {
-        color: #FFFFFF !important;
-        font-family: 'Courier New', monospace;
-        font-size: 3em;
-        margin: 0;
-    }
-    /* TODO EL TEXTO EN NEGRO */
-    .black-text, p, h1, h2, h3, span, label {
-        color: #000000 !important;
-        font-weight: 500;
-    }
+    .pokedex-title { color: #FFFFFF !important; font-family: 'Courier New', monospace; font-size: 3em; margin: 0; }
+    /* TEXTO NEGRO INTEGRAL */
+    .black-text, p, h1, h2, h3, span, label, div { color: #000000 !important; font-weight: 600; }
     .data-card {
         background-color: rgba(0, 0, 0, 0.05);
         border-left: 5px solid #DC0A2D;
@@ -52,7 +42,7 @@ st.markdown("""
     .evo-tag {
         background-color: #FFCC00;
         color: black !important;
-        padding: 5px 12px;
+        padding: 6px 14px;
         border-radius: 15px;
         font-weight: bold;
         display: inline-block;
@@ -67,7 +57,7 @@ st.markdown("<div class='pokedex-title-box'><h1 class='pokedex-title'>TURIDEX</h
 try:
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 except:
-    st.error("Configura la API KEY en Secrets.")
+    st.error("Error: Configura la API KEY.")
 
 def encode_image(image_file):
     return base64.b64encode(image_file.getvalue()).decode('utf-8')
@@ -83,29 +73,34 @@ with st.container():
             analizar = st.button("🔍 ESCANEAR OBJETIVO")
 
     if archivo and analizar:
-        with st.spinner("Analizando..."):
+        with st.spinner("Analizando con Inteligencia TURIDEX..."):
             try:
                 img_b64 = encode_image(archivo)
-                # PROMPT INTELIGENTE: Clasificación por categorías
-                prompt = """Actúa como el sistema de inteligencia TURIDEX. Analiza la imagen y clasifícala en una de estas 3 categorías: COMIDA, ANIMAL, o LUGAR.
+                # PROMPT MAESTRO BLINDADO
+                prompt = """Eres el sistema de reconocimiento TURIDEX. Tu análisis debe ser infalible.
                 
-                REGLAS DE IDENTIFICACIÓN:
-                1. Si es ANIMAL: Los STATS deben ser [Fuerza, Agilidad, Peligro, Rareza]. Las EVOS deben ser otros animales similares (ej: si es León -> Tigre, Jaguar).
-                2. Si es LUGAR: Los STATS deben ser [Historia, Belleza, Cultura, Rareza]. Las EVOS deben ser otros lugares similares.
-                3. Si es COMIDA: Los STATS deben ser [Sabor, Picante, Salud, Rareza]. Las EVOS deben ser variantes del plato.
+                CONOCIMIENTO BASE:
+                - SALCHIPAPA: Contiene papas fritas alargadas y trozos de salchicha. NO son nachos.
+                - NACHOS: Son triángulos de tortilla de maíz con queso. NO son salchipapas.
                 
-                Responde EXACTAMENTE así:
+                INSTRUCCIONES DE CATEGORÍA:
+                1. Clasifica en: [COMIDA, ANIMAL, LUGAR].
+                2. Si es COMIDA: Stats = [Sabor, Picante, Salud, Rareza]. Salud < 15 si es frito/chatarra.
+                3. Si es ANIMAL: Stats = [Fuerza, Agilidad, Peligro, Rareza]. Variantes = otros animales de la misma familia.
+                4. Si es LUGAR: Stats = [Historia, Belleza, Cultura, Rareza].
+                
+                RESPONDE ESTRICTAMENTE:
                 NOMBRE: [Nombre]
-                CATEGORIA: [ANIMAL, LUGAR o COMIDA]
-                DESC: [Descripción breve]
-                HISTORIA: [Contexto detallado de 2 párrafos]
-                STATS: [Valor1, Valor2, Valor3, Valor4] (Números 0-100)
+                CATEGORIA: [COMIDA, ANIMAL o LUGAR]
+                DESC: [Breve descripción]
+                HISTORIA: [2 párrafos de contexto real]
+                STATS: [Valor1, Valor2, Valor3, Valor4] (0-100)
                 EVOS: [Variante1, Variante2, Variante3]"""
 
                 chat = client.chat.completions.create(
                     messages=[{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}]}],
                     model="meta-llama/llama-4-scout-17b-16e-instruct",
-                    temperature=0.2
+                    temperature=0.1 # Bajamos la temperatura para que no invente
                 )
                 res = chat.choices[0].message.content
 
@@ -125,17 +120,20 @@ with st.container():
 
                 with col_info:
                     st.markdown(f"## 📋 {nombre}")
-                    st.markdown(f"<div class='data-card'><p><b>CATEGORÍA:</b> {cat}<br>{desc}</p></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='data-card'><p><b>CATEGORÍA:</b> {cat}</p><p>{desc}</p></div>", unsafe_allow_html=True)
                     
-                    st.markdown("### 📖 Historia y Datos")
+                    st.markdown("### 📖 Historia")
                     st.markdown(f"<p>{historia}</p>", unsafe_allow_html=True)
                     
-                    # Lógica de etiquetas dinámicas
-                    if "ANIMAL" in cat: labels = ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
-                    elif "LUGAR" in cat: labels = ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
-                    else: labels = ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
+                    # ASIGNACIÓN DE ETIQUETAS SIN ERRORES
+                    if "ANIMAL" in cat:
+                        labels = ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
+                    elif "LUGAR" in cat:
+                        labels = ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
+                    else: # COMIDA
+                        labels = ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
 
-                    st.markdown(f"### 📊 Puntos Base ({cat})")
+                    st.markdown(f"### 📊 Puntos Base")
                     c1, c2 = st.columns(2)
                     with c1:
                         st.markdown(f"<p>{labels[0]}: {nums[0]}%</p>", unsafe_allow_html=True)
@@ -148,13 +146,14 @@ with st.container():
                         st.markdown(f"<p>{labels[3]}: {nums[3]}%</p>", unsafe_allow_html=True)
                         st.progress(nums[3]/100)
 
-                    st.markdown("### 🔄 Variantes Relacionadas")
+                    st.markdown("### 🔄 Variantes Registradas")
                     for e in evos_raw.split(","):
-                        st.markdown(f"<span class='evo-tag'>{e.strip()}</span>", unsafe_allow_html=True)
+                        if e.strip() and e.strip() != "---":
+                            st.markdown(f"<span class='evo-tag'>{e.strip()}</span>", unsafe_allow_html=True)
 
                 tts = gTTS(text=f"{nombre}. {historia}", lang='es')
                 fp = io.BytesIO(); tts.write_to_fp(fp); st.audio(fp)
 
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Error técnico: {e}")
     st.markdown("</div>", unsafe_allow_html=True)
