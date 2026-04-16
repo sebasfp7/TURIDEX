@@ -6,86 +6,105 @@ from gtts import gTTS
 import io
 import re
 
-# --- CONFIGURACIÓN Y ESTILO ---
-st.set_page_config(page_title="Turidex Elite", page_icon="📸", layout="wide")
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="Turidex Elite v4", page_icon="📸", layout="wide")
 
+# --- CSS DE ALTO CONTRASTE Y DISEÑO LIMPIO ---
 st.markdown("""
 <style>
     .stApp {
         background-image: url('https://vignette.wikia.nocookie.net/es.pokemon/images/c/c1/Mapa_de_Kanto_GSC.png/revision/latest?cb=20191215132219');
         background-size: cover; background-position: center; background-attachment: fixed;
     }
-    .legible-text {
-        color: white !important;
-        text-shadow: 2px 2px 4px #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+    /* El contenedor principal con efecto cristal oscuro */
+    .pokedex-frame {
+        background-color: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(10px);
+        border: 4px solid #DC0A2D;
+        border-radius: 20px;
+        padding: 30px;
+        color: white;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
     }
     .pokedex-title {
-        font-family: 'Courier New', monospace; color: #FFCC00; text-align: center;
-        text-shadow: 3px 3px 0 #000; font-size: 3.5em; padding: 10px;
-    }
-    .pokedex-frame {
-        background-color: rgba(220, 10, 45, 0.95); border: 8px solid #8B0000;
-        border-radius: 15px; padding: 25px; box-shadow: 10px 10px 0px rgba(0,0,0,0.4);
+        font-family: 'Courier New', monospace;
+        color: #FFCC00;
+        text-align: center;
+        text-shadow: 2px 2px #000;
+        font-size: 3.5em;
+        margin-bottom: 20px;
     }
     .data-card {
-        background-color: rgba(48, 167, 215, 0.9); color: white; border-radius: 10px;
-        padding: 15px; margin: 10px 0; border: 2px solid #1b7ba1; text-shadow: 1px 1px 2px #000;
-        font-size: 1.1em;
+        background-color: rgba(48, 167, 215, 0.2);
+        border-left: 5px solid #30A7D7;
+        padding: 20px;
+        border-radius: 10px;
+        margin: 15px 0;
     }
-    .stats-container {
-        background-color: rgba(0, 0, 0, 0.7); border-radius: 10px; padding: 15px; margin-top: 10px;
+    .stats-box {
+        background-color: rgba(255, 255, 255, 0.1);
+        padding: 20px;
+        border-radius: 15px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
     }
-    .evo-card {
-        background-color: #333; border: 2px solid #FFCC00; border-radius: 10px;
-        padding: 10px; text-align: center; color: white; font-weight: bold;
+    .evo-tag {
+        background-color: #FFCC00;
+        color: black;
+        padding: 5px 15px;
+        border-radius: 20px;
+        font-weight: bold;
+        display: inline-block;
+        margin: 5px;
+    }
+    /* Estilo para que el texto de Streamlit no se pierda */
+    .stMarkdown, p, h1, h2, h3 {
+        color: white !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown("<h1 class='pokedex-title'>TURIDEX ELITE</h1>", unsafe_allow_html=True)
 
+# Lógica de Groq
 try:
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 except:
-    st.error("Error: Configura tu GROQ_API_KEY en Secrets.")
+    st.error("Error: Configura tu GROQ_API_KEY.")
 
 def encode_image(image_file):
     return base64.b64encode(image_file.getvalue()).decode('utf-8')
 
-st.markdown("<div class='pokedex-frame'>", unsafe_allow_html=True)
-archivo = st.file_uploader("📸 Escáner Multimodal Activo...", type=["jpg", "png", "jpeg"])
-
-if archivo:
-    st.image(PIL.Image.open(archivo), width=240)
+# --- CUERPO DE LA APP ---
+with st.container():
+    st.markdown("<div class='pokedex-frame'>", unsafe_allow_html=True)
     
-    if st.button("🔍 ANALIZAR OBJETIVO"):
-        with st.spinner("⏳ Analizando con rigor Gastronómico y Científico..."):
+    col_img, col_info = st.columns([1, 2])
+    
+    with col_img:
+        archivo = st.file_uploader("📸 Escáner de Élite", type=["jpg", "png", "jpeg"])
+        if archivo:
+            st.image(PIL.Image.open(archivo), use_container_width=True)
+            analizar = st.button("🔍 INICIAR ANÁLISIS")
+    
+    if archivo and analizar:
+        with st.spinner("⏳ Analizando con Llama 4 Scout..."):
             try:
-                base64_image = encode_image(archivo)
+                base_4_img = encode_image(archivo)
+                prompt = """Actúa como un Crítico Gastronómico y Analista Científico. 
+                Analiza la imagen. Si es comida chatarra (salchipapa, etc), Salud < 15.
                 
-                prompt = """Actúa como un Crítico Gastronómico de Élite y un Explorador Científico.
-                Analiza la imagen con precisión quirúrgica.
-                
-                REGLAS DE IDENTIFICACIÓN:
-                1. COMIDA: Diferencia papas fritas de totopos. Si ves salchicha y papa frita, es SALCHIPAPA.
-                2. ANIMALES/LUGARES: Identificación rigurosa.
-                
-                REGLAS DE STATS (Inflexibles):
-                - COMIDA CHATARRA: Salud < 15. Sabor > 90.
-                - ANIMALES: Sabor/Picante no aplican (pon 0). Usa Fuerza y Agilidad.
-                
-                Responde estrictamente en este formato:
+                Responde EXACTAMENTE así:
                 NOMBRE: [Nombre]
                 TIPO: [Categoría]
-                DESC: [Descripción de 1 línea]
-                HISTORIA: [Dos párrafos detallados]
-                STATS: [Valor1, Valor2, Valor3, Valor4] (4 números 0-100)
-                EVOS: [Variante1, Variante2, Variante3]"""
+                DESC: [Breve descripción]
+                HISTORIA: [Historia larga y detallada de 2 párrafos]
+                STATS: [Valor1, Valor2, Valor3, Valor4] (4 números)
+                EVOS: [Var1, Var2, Var3]"""
 
                 chat = client.chat.completions.create(
                     messages=[{"role": "user", "content": [
                         {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base_4_img}"}}
                     ]}],
                     model="meta-llama/llama-4-scout-17b-16e-instruct",
                     temperature=0.4
@@ -93,65 +112,54 @@ if archivo:
                 
                 res = chat.choices[0].message.content
 
-                # --- EXTRACCIÓN MEJORADA ---
-                def get_field(field_name, text):
-                    pattern = rf"{field_name}:\s*(.*?)(?=\n[A-Z]+:|$)"
-                    match = re.search(pattern, text, re.DOTALL)
-                    return match.group(1).strip() if match else "---"
+                # --- EXTRACCIÓN LIMPIA ---
+                def extraer(tag, texto):
+                    try:
+                        regex = rf"{tag}:\s*(.*?)(?=\n[A-Z]+:|$)"
+                        return re.search(regex, texto, re.S).group(1).strip()
+                    except: return "No disponible"
 
-                nombre = get_field("NOMBRE", res)
-                tipo = get_field("TIPO", res)
-                desc = get_field("DESC", res)
-                historia = get_field("HISTORIA", res)
-                stats_raw = get_field("STATS", res)
-                evos_raw = get_field("EVOS", res)
+                nombre = extraer("NOMBRE", res)
+                tipo = extraer("TIPO", res)
+                desc = extraer("DESC", res)
+                historia = extraer("HISTORIA", res)
+                stats_raw = extraer("STATS", res)
+                evos_raw = extraer("EVOS", res)
                 
-                # Números de stats
                 nums = [int(n) for n in re.findall(r'\d+', stats_raw)][:4]
                 while len(nums) < 4: nums.append(0)
 
-                # --- VISUALIZACIÓN DE DATOS (AQUÍ ESTABA EL FALLO) ---
-                st.markdown(f"<h2 class='legible-text'>📋 {nombre}</h2>", unsafe_allow_html=True)
-                
-                st.markdown(f"<div class='data-card'><b>TIPO:</b> {tipo.upper()}<br><i>{desc}</i></div>", unsafe_allow_html=True)
-                
-                # Mostrar Historia explícitamente
-                st.markdown("<h3 class='legible-text'>📖 Descripción y Origen</h3>", unsafe_allow_html=True)
-                st.markdown(f"<div class='data-card' style='background-color: rgba(0,0,0,0.5);'>{historia}</div>", unsafe_allow_html=True)
-
-                # Stats Dinámicos
-                st.markdown("<h3 class='legible-text'>📊 Estadísticas de Análisis</h3>", unsafe_allow_html=True)
-                if "animal" in tipo.lower():
-                    labels = ["🐾 Fuerza", "⚡ Agilidad", "❤️ Ternura", "💎 Rareza"]
-                elif "lugar" in tipo.lower():
-                    labels = ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
-                else:
+                # --- RENDERIZADO EN COL_INFO ---
+                with col_info:
+                    st.markdown(f"## 📋 {nombre}")
+                    st.markdown(f"<div class='data-card'><b>{tipo.upper()}</b><br>{desc}</div>", unsafe_allow_html=True)
+                    
+                    st.subheader("📖 Origen y Detalles")
+                    st.write(historia)
+                    
+                    st.subheader("📊 Análisis de Puntos Base")
                     labels = ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
+                    if "animal" in tipo.lower(): labels = ["🐾 Fuerza", "⚡ Agilidad", "❤️ Ternura", "💎 Rareza"]
+                    
+                    st.markdown("<div class='stats-box'>", unsafe_allow_html=True)
+                    c_a, c_b = st.columns(2)
+                    with c_a:
+                        st.write(f"{labels[0]}: {nums[0]}%"); st.progress(nums[0]/100)
+                        st.write(f"{labels[1]}: {nums[1]}%"); st.progress(nums[1]/100)
+                    with c_b:
+                        st.write(f"{labels[2]}: {nums[2]}%"); st.progress(nums[2]/100)
+                        st.write(f"{labels[3]}: {nums[3]}%"); st.progress(nums[3]/100)
+                    st.markdown("</div>", unsafe_allow_html=True)
 
-                st.markdown("<div class='stats-container'>", unsafe_allow_html=True)
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.write(f"**{labels[0]}: {nums[0]}%**"); st.progress(nums[0]/100)
-                    st.write(f"**{labels[1]}: {nums[1]}%**"); st.progress(nums[1]/100)
-                with c2:
-                    st.write(f"**{labels[2]}: {nums[2]}%**"); st.progress(nums[2]/100)
-                    st.write(f"**{labels[3]}: {nums[3]}%**"); st.progress(nums[3]/100)
-                st.markdown("</div>", unsafe_allow_html=True)
-
-                # Evoluciones
-                st.markdown("<h3 class='legible-text'>🔄 Variantes Registradas</h3>", unsafe_allow_html=True)
-                evos = evos_raw.split(",")
-                ec = st.columns(3)
-                for i, col in enumerate(ec):
-                    if i < len(evos):
-                        with col: st.markdown(f"<div class='evo-card'>{evos[i].strip()}</div>", unsafe_allow_html=True)
+                    st.subheader("🔄 Variantes")
+                    for e in evos_raw.split(","):
+                        st.markdown(f"<span class='evo-tag'>{e.strip()}</span>", unsafe_allow_html=True)
 
                 # Audio
-                audio_text = f"{nombre}. {tipo}. {desc}. {historia}"
-                tts = gTTS(text=re.sub(r'[*#_]', '', audio_text), lang='es')
+                tts = gTTS(text=f"{nombre}. {desc}. {historia}", lang='es')
                 fp = io.BytesIO(); tts.write_to_fp(fp); st.audio(fp)
 
             except Exception as e:
-                st.error(f"Error en el escáner: {e}")
+                st.error(f"Error: {e}")
 
-st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
