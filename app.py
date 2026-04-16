@@ -1,55 +1,68 @@
 import streamlit as st
-from PIL import Image
-import imagehash
+import google.generativeai as genai
+from groq import Groq # Necesitas poner 'groq' en requirements.txt
+import PIL.Image
 from gtts import gTTS
-import os
+import json
+import re
 
-# --- BASE DE DATOS DE HUELLAS DIGITALES ---
-# En un proyecto real, esto cargaría desde una carpeta. 
-# Aquí te doy la estructura para que funcione ya mismo.
-TURIDEX_DB = {
-    "cerdo_asado": {
-        "nombre": "Cerdo Asado Colombiano",
-        "hash": "8c8cceecec8c8c8c", # Esta es la "huella" de la foto
-        "historia": "Una tradición milenaria de los campos... (aquí tu texto largo)",
-        "dato": "El secreto es el adobo de 24 horas.",
-        "mapa": "restaurantes+de+asados"
-    }
-}
+# --- CONFIGURACIÓN ---
+st.set_page_config(page_title="Turidex Pro", page_icon="📸")
+st.title("📸 TURIDEX: Inteligencia Total")
 
-st.title("📸 TURIDEX: Escáner Local")
-st.write("Sube una foto y la compararemos con nuestra base de datos biométrica.")
+# Configurar Google
+genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+model_google = genai.GenerativeModel('gemini-1.5-flash-8b')
 
-archivo = st.file_uploader("Sube la imagen", type=["jpg", "png", "jpeg"])
+# Configurar Groq (El respaldo que no falla)
+client_groq = Groq(api_key=st.secrets["GROQ_API_KEY"])
+
+def limpiar_texto(t):
+    return re.sub(r'[*#_]', '', t)
+
+archivo = st.file_uploader("Sube una foto...", type=["jpg", "png", "jpeg"])
 
 if archivo:
-    img_usuario = Image.open(archivo)
-    st.image(img_usuario, width=300)
+    img = PIL.Image.open(archivo).convert("RGB")
+    st.image(img, use_container_width=True)
     
-    # Generamos la huella digital de la foto que subió el usuario
-    hash_usuario = str(imagehash.average_hash(img_usuario))
-    
-    if st.button("🔍 ESCANEAR"):
-        encontrado = None
-        # Comparamos la huella con nuestra base de datos
-        for clave, info in TURIDEX_DB.items():
-            # Si las huellas son similares (distancia pequeña)
-            distancia = imagehash.hex_to_hash(hash_usuario) - imagehash.hex_to_hash(info["hash"])
+    if st.button("🔍 ANALIZAR AHORA"):
+        with st.status("🚀 Buscando en múltiples cerebros...") as status:
+            res_final = ""
             
-            if distancia < 10: # Ajuste de sensibilidad (más bajo es más exacto)
-                encontrado = info
-                break
-        
-        if encontrado:
-            st.success(f"✅ ¡Coincidencia encontrada: {encontrado['nombre']}!")
-            st.subheader("📖 Historia Completa")
-            st.write(encontrado["historia"])
-            
-            # Mapa y Audio (igual que antes)
-            st.link_button("📍 VER MAPA", f"https://www.google.com/maps/search/{encontrado['mapa']}")
-            
-            tts = gTTS(encontrado["historia"], lang='es')
-            tts.save("audio.mp3")
-            st.audio("audio.mp3")
-        else:
-            st.error("❌ No reconozco esta imagen. No está en mi base de datos de ADN.")
+            # INTENTO 1: Google Gemini Mini (Rápido y ligero)
+            try:
+                status.write("📡 Consultando Google (Flash-8b)...")
+                prompt = "Identifica el plato/lugar. Dame: NOMBRE, HISTORIA (larga y detallada) y DATO CURIOSO."
+                response = model_google.generate_content([prompt, img])
+                res_final = response.text
+            except:
+                # INTENTO 2: Groq (Si Google falla)
+                status.write("⚠️ Google saturado. Saltando a motor de alta velocidad (Groq)...")
+                try:
+                    # Nota: Groq es mejor con texto, así que le pediremos a Google solo el nombre 
+                    # y a Groq que nos cuente la historia larga.
+                    prompt_nombre = "Dime solo el nombre de este plato/lugar (2 palabras)."
+                    nombre_breve = model_google.generate_content([prompt_nombre, img]).text
+                    
+                    chat_completion = client_groq.chat.completions.create(
+                        messages=[{"role": "user", "content": f"Háblame extensamente sobre {nombre_breve}. Dame historia y un dato curioso."}],
+                        model="llama-3.3-70b-versatile",
+                    )
+                    res_final = f"NOMBRE: {nombre_breve}\n\n{chat_completion.choices[0].message.content}"
+                except Exception as e:
+                    st.error("Incluso el respaldo falló. Revisa tu conexión.")
+
+            if res_final:
+                status.update(label="✅ ¡Logrado!", state="complete")
+                st.markdown(res_final)
+                
+                # Mapa
+                nombre_busqueda = res_final.split('\n')[0].replace("NOMBRE:", "").strip()
+                link = f"https://www.google.com/maps/search/{nombre_busqueda.replace(' ', '+')}+restaurantes"
+                st.link_button(f"📍 BUSCAR {nombre_busqueda.upper()} CERCA", link)
+                
+                # Audio
+                tts = gTTS(limpiar_texto(res_final), lang='es')
+                tts.save("voz.mp3")
+                st.audio("voz.mp3")
