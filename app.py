@@ -12,7 +12,7 @@ st.write("Identifica lugares y comida con IA")
 # --- CONFIGURACIÓN DE IA ---
 # Aquí usaremos un truco de seguridad después, por ahora pon tu llave:
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-1.5-flash-latest')
 
 # --- INTERFAZ DE USUARIO ---
 archivo_subido = st.file_uploader("Sube una foto...", type=["jpg", "png", "jpeg"])
