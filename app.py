@@ -9,6 +9,14 @@ import re
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="TURIDEX", layout="wide")
 
+# --- INICIALIZACIÓN DE SESSION STATE ---
+if 'historial_ruta' not in st.session_state:
+    st.session_state.historial_ruta = []
+if 'variante_seleccionada' not in st.session_state:
+    st.session_state.variante_seleccionada = None
+if 'categoria_actual' not in st.session_state:
+    st.session_state.categoria_actual = None
+
 st.markdown("""
 <style>
     .stApp {
@@ -23,39 +31,68 @@ st.markdown("""
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
     }
     
-    /* HEADER UNIFICADO - SOLO CUADRO NEGRO CON TÍTULO */
+    /* HEADER PRINCIPAL CON EFECTO GLOW */
     .pokedex-title-box {
         background-color: #000000;
         border: 4px solid #DC0A2D;
         border-radius: 10px;
         padding: 15px;
         text-align: center;
-        margin-bottom: 20px;
+        margin-bottom: 15px;
     }
     .pokedex-title { 
         color: #FFDE00 !important; 
         font-family: 'Courier New', monospace; 
         font-size: 3.5em; 
         margin: 0;
-        text-shadow: 3px 3px 0px #DC0A2D, 
-                     -1px -1px 0px #DC0A2D,  
-                     1px -1px 0px #DC0A2D,
-                     -1px 1px 0px #DC0A2D,
-                     1px 1px 0px #DC0A2D;
+        text-shadow: 0 0 10px #FFDE00,
+                     0 0 20px #FFDE00,
+                     0 0 30px #FF0000,
+                     3px 3px 0px #DC0A2D;
         letter-spacing: 5px;
+        animation: glow 2s ease-in-out infinite alternate;
     }
     
-    /* INDICADOR DE ESTADO */
+    @keyframes glow {
+        from { text-shadow: 0 0 10px #FFDE00, 0 0 20px #FFDE00, 0 0 30px #FF0000; }
+        to { text-shadow: 0 0 20px #FFDE00, 0 0 30px #FFDE00, 0 0 40px #FF0000; }
+    }
+    
+    /* BARRA DE RUTA (BREADCRUMB) */
+    .breadcrumb-box {
+        background-color: rgba(255, 255, 255, 0.95);
+        border: 3px solid #DC0A2D;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 20px;
+        text-align: center;
+        font-family: 'Courier New', monospace;
+        font-size: 1.1em;
+        color: #000000;
+        font-weight: bold;
+    }
+    .breadcrumb-arrow {
+        color: #DC0A2D;
+        margin: 0 8px;
+    }
+    
+    /* ESTADO DEL ESCÁNER */
     .status-indicator {
-        background-color: rgba(0, 0, 0, 0.8);
+        background-color: rgba(0, 0, 0, 0.85);
         color: #00FF00;
-        padding: 8px 15px;
+        padding: 10px 15px;
         border-radius: 5px;
         text-align: center;
         font-family: 'Courier New', monospace;
-        font-size: 0.9em;
-        margin-top: 10px;
+        font-size: 1em;
+        margin-bottom: 15px;
         border: 2px solid #00FF00;
+        animation: blink 1.5s ease-in-out infinite;
+    }
+    
+    @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
     }
     
     /* TEXTO CON MÁXIMA LEGIBILIDAD */
@@ -83,22 +120,42 @@ st.markdown("""
         box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
     }
     
-    .evo-tag {
-        background-color: #FFCC00;
+    /* BOTONES DE VARIANTES INTERACTIVOS */
+    .stButton > button {
+        background-color: #FFCC00 !important;
         color: black !important;
-        padding: 8px 16px;
-        border-radius: 15px;
-        font-weight: bold;
-        display: inline-block;
-        margin: 5px;
-        border: 2px solid #000;
-        box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        padding: 12px 20px !important;
+        border-radius: 15px !important;
+        font-weight: bold !important;
+        border: 2px solid #000 !important;
+        box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3) !important;
+        width: 100% !important;
+        margin: 5px 0 !important;
+        transition: all 0.3s ease !important;
+        font-size: 1.1em !important;
+    }
+    
+    .stButton > button:hover {
+        background-color: #FFD700 !important;
+        transform: translateY(-3px) !important;
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4) !important;
+        border: 2px solid #DC0A2D !important;
+    }
+    
+    .stButton > button:active {
+        transform: translateY(0px) !important;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# HEADER ÚNICO CON TÍTULO
+# HEADER CON ANIMACIÓN
 st.markdown("<div class='pokedex-title-box'><h1 class='pokedex-title'>⚡ TURIDEX ⚡</h1></div>", unsafe_allow_html=True)
+
+# BARRA DE RUTA (BREADCRUMB)
+if st.session_state.historial_ruta:
+    ruta_texto = " <span class='breadcrumb-arrow'>→</span> ".join(st.session_state.historial_ruta)
+    st.markdown(f"<div class='breadcrumb-box'>📍 Ruta: {ruta_texto}</div>", unsafe_allow_html=True)
 
 try:
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
@@ -110,9 +167,7 @@ def encode_image(image_file):
 
 def sanitizar_texto(texto):
     """Función de limpieza: elimina símbolos, duplicados y formatea"""
-    # Elimina símbolos especiales
     texto = re.sub(r'[*#_\[\]]', '', texto)
-    # Elimina saltos de línea múltiples
     texto = re.sub(r'\n{3,}', '\n\n', texto)
     return texto.strip()
 
@@ -122,37 +177,71 @@ def extraer_dato(tag, texto):
     matches = re.findall(patron, texto, re.S | re.I)
     
     if matches:
-        # TOMA SOLO LA PRIMERA APARICIÓN
         contenido = matches[0].strip()
         return sanitizar_texto(contenido)
     return "Dato no disponible"
 
-with st.container():
-    st.markdown("<div class='pokedex-frame'>", unsafe_allow_html=True)
+def consultar_ia(prompt_texto, imagen_b64=None):
+    """Función unificada para consultar la IA con o sin imagen"""
     
-    # Indicador de estado
-    estado_placeholder = st.empty()
-    estado_placeholder.markdown("<div class='status-indicator'>⏳ Esperando objetivo...</div>", unsafe_allow_html=True)
+    if imagen_b64:
+        # Consulta con imagen
+        messages = [{
+            "role": "user", 
+            "content": [
+                {"type": "text", "text": prompt_texto}, 
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{imagen_b64}"}}
+            ]
+        }]
+    else:
+        # Consulta solo texto
+        messages = [{"role": "user", "content": prompt_texto}]
     
-    col_img, col_info = st.columns([1, 2])
+    chat = client.chat.completions.create(
+        messages=messages,
+        model="meta-llama/llama-4-scout-17b-16e-instruct",
+        temperature=0.05,
+        max_tokens=1200
+    )
     
-    with col_img:
-        archivo = st.file_uploader("", type=["jpg", "png", "jpeg"])
-        if archivo:
-            st.image(PIL.Image.open(archivo), use_container_width=True)
-            analizar = st.button("🔍 ESCANEAR OBJETIVO")
+    return chat.choices[0].message.content
 
-    if archivo and analizar:
-        estado_placeholder.markdown("<div class='status-indicator'>🔄 Analizando datos...</div>", unsafe_allow_html=True)
-        
-        with st.spinner("Procesando..."):
-            try:
-                img_b64 = encode_image(archivo)
-                
-                # ========================================
-                # 🎯 PROMPT DEFINITIVO V2.0
-                # ========================================
-                prompt = """Eres TURIDEX, sistema avanzado de identificación. Sigue estas instrucciones AL PIE DE LA LETRA.
+def obtener_prompt_base(nombre_elemento=None):
+    """Genera el prompt base. Si recibe un nombre, lo busca por texto"""
+    
+    if nombre_elemento:
+        # PROMPT PARA BÚSQUEDA POR TEXTO (cuando se pulsa una variante)
+        return f"""Eres TURIDEX. El usuario quiere información sobre: {nombre_elemento}
+
+⚠️ IMPORTANTE: Mantén la misma categoría que el elemento anterior.
+- Si venías de COMIDA, este también debe ser COMIDA
+- Si venías de ANIMAL, este también debe ser ANIMAL
+- Si venías de LUGAR, este también debe ser LUGAR
+
+Proporciona la información completa siguiendo EXACTAMENTE este formato:
+
+NOMBRE: {nombre_elemento}
+CATEGORIA: [Usa la misma categoría del contexto anterior]
+DESC: [Descripción breve en máximo 15 palabras]
+HISTORIA: [Dos párrafos: 1) Origen e historia 2) Importancia actual. Total 100-150 palabras]
+STATS: [num1, num2, num3, num4]
+EVOS: [Variante1, Variante2, Variante3]
+
+REGLAS PARA STATS según categoría:
+- COMIDA: Sabor, Picante, Salud, Rareza (comida frita tiene Salud 5-15)
+- ANIMAL: Fuerza, Agilidad, Peligro, Rareza
+- LUGAR: Historia, Belleza, Cultura, Rareza
+
+REGLAS PARA EVOS:
+✅ SOLO sustantivos del mismo tipo
+✅ EXACTAMENTE 3 variantes
+❌ NO adjetivos ni frases
+
+Responde AHORA:"""
+    
+    else:
+        # PROMPT PARA ANÁLISIS DE IMAGEN (escaneo inicial)
+        return """Eres TURIDEX, sistema avanzado de identificación. Sigue estas instrucciones AL PIE DE LA LETRA.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎯 FASE 1: IDENTIFICACIÓN PRECISA
@@ -176,44 +265,28 @@ Observa la imagen y clasifica en UNA de estas categorías:
 📊 FASE 2: ASIGNACIÓN DE ESTADÍSTICAS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-IMPORTANTE: Los STATS cambian según la categoría detectada.
-
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ SI DETECTASTE: COMIDA                  ┃
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
-┃ STATS (valores 0-100):                 ┃
-┃ • Sabor: Qué tan delicioso es         ┃
-┃ • Picante: Nivel de ají/chile         ┃
-┃ • Salud: Valor nutricional            ┃
-┃   (Comida frita/chatarra = 5-15)      ┃
-┃ • Rareza: Dificultad para encontrar   ┃
+┃ STATS: Sabor, Picante, Salud, Rareza  ┃
+┃ (Comida frita/chatarra: Salud 5-15)   ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ SI DETECTASTE: ANIMAL                  ┃
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
-┃ STATS (valores 0-100):                 ┃
-┃ • Fuerza: Poder físico                ┃
-┃ • Agilidad: Velocidad y reflejos      ┃
-┃ • Peligro: Amenaza para humanos       ┃
-┃ • Rareza: Estado de conservación      ┃
+┃ STATS: Fuerza, Agilidad, Peligro, Rareza ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ SI DETECTASTE: LUGAR                   ┃
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
-┃ STATS (valores 0-100):                 ┃
-┃ • Historia: Antigüedad e importancia  ┃
-┃ • Belleza: Atractivo visual           ┃
-┃ • Cultura: Relevancia cultural        ┃
-┃ • Rareza: Exclusividad/acceso         ┃
+┃ STATS: Historia, Belleza, Cultura, Rareza ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔄 FASE 3: VARIANTES (EVOLUCIONES)
+🔄 FASE 3: VARIANTES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-⚠️ REGLA CRÍTICA: Las variantes DEBEN ser SUSTANTIVOS del mismo tipo.
 
 ✅ CORRECTO:
 • COMIDA: Salchipapa → Papas fritas, Hot dog, Choripán
@@ -221,123 +294,195 @@ IMPORTANTE: Los STATS cambian según la categoría detectada.
 • LUGAR: Machu Picchu → Chichén Itzá, Petra, Angkor Wat
 
 ❌ INCORRECTO:
-• NO uses adjetivos: "Fuerte", "Delicioso", "Antiguo"
-• NO mezcles categorías: Pizza → Perro, Torre Eiffel
-• NO uses frases: "Muy sabroso", "El más grande"
-
-Proporciona EXACTAMENTE 3 variantes como sustantivos simples.
+• Adjetivos: "Fuerte", "Delicioso"
+• Mezclar categorías
+• Frases largas
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 FORMATO DE RESPUESTA (COPIA EXACTO)
+📋 FORMATO DE RESPUESTA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-NOMBRE: [Nombre del elemento]
-CATEGORIA: [Escribe solo: COMIDA, ANIMAL o LUGAR]
-DESC: [Una frase de máximo 15 palabras]
-HISTORIA: [Escribe 2 párrafos. Párrafo 1: Origen e historia. Párrafo 2: Importancia actual. Total: 100-150 palabras]
+NOMBRE: [Nombre]
+CATEGORIA: [COMIDA/ANIMAL/LUGAR]
+DESC: [Máximo 15 palabras]
+HISTORIA: [2 párrafos, 100-150 palabras total]
 STATS: [num1, num2, num3, num4]
-EVOS: [Sustantivo1, Sustantivo2, Sustantivo3]
+EVOS: [Variante1, Variante2, Variante3]
 
-⚠️ PROHIBIDO:
-• Usar asteriscos *, hashtags #, corchetes []
-• Repetir secciones
-• Incluir explicaciones adicionales
-• Usar adjetivos en EVOS
+⚠️ PROHIBIDO: *, #, [], repeticiones
 
-Analiza la imagen AHORA:"""
+Analiza AHORA:"""
 
-                # ========================================
-                # Llamada a la IA con configuración óptima
-                # ========================================
-                chat = client.chat.completions.create(
-                    messages=[{
-                        "role": "user", 
-                        "content": [
-                            {"type": "text", "text": prompt}, 
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
-                        ]
-                    }],
-                    model="meta-llama/llama-4-scout-17b-16e-instruct",
-                    temperature=0.05,
-                    max_tokens=1200
-                )
+def procesar_respuesta(respuesta_ia):
+    """Procesa la respuesta de la IA y devuelve datos estructurados"""
+    
+    nombre = extraer_dato("NOMBRE", respuesta_ia)
+    categoria = extraer_dato("CATEGORIA", respuesta_ia).upper()
+    descripcion = extraer_dato("DESC", respuesta_ia)
+    historia = extraer_dato("HISTORIA", respuesta_ia)
+    stats_raw = extraer_dato("STATS", respuesta_ia)
+    evos_raw = extraer_dato("EVOS", respuesta_ia)
+    
+    # Procesar números
+    numeros = [int(n) for n in re.findall(r'\d+', stats_raw)][:4]
+    while len(numeros) < 4: 
+        numeros.append(0)
+    numeros = [min(100, max(0, n)) for n in numeros]
+    
+    # Procesar variantes
+    variantes = [v.strip() for v in evos_raw.split(",") if v.strip() and len(v.strip()) > 2][:3]
+    
+    return {
+        'nombre': nombre,
+        'categoria': categoria,
+        'descripcion': descripcion,
+        'historia': historia,
+        'numeros': numeros,
+        'variantes': variantes
+    }
+
+def obtener_etiquetas(categoria):
+    """Devuelve las etiquetas correctas según la categoría"""
+    if "ANIMAL" in categoria:
+        return ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
+    elif "LUGAR" in categoria:
+        return ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
+    else:
+        return ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
+
+def renderizar_ficha(datos, etiquetas):
+    """Renderiza la ficha técnica del elemento"""
+    
+    st.markdown(f"## 📋 {datos['nombre']}")
+    st.markdown(f"<div class='data-card'><p><b>CATEGORÍA:</b> {datos['categoria']}</p><p>{datos['descripcion']}</p></div>", unsafe_allow_html=True)
+    
+    st.markdown("### 📖 Historia")
+    st.markdown(f"<div class='historia-box'><p>{datos['historia']}</p></div>", unsafe_allow_html=True)
+    
+    st.markdown("### 📊 Puntos Base")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"<p>{etiquetas[0]}: {datos['numeros'][0]}%</p>", unsafe_allow_html=True)
+        st.progress(datos['numeros'][0]/100)
+        st.markdown(f"<p>{etiquetas[1]}: {datos['numeros'][1]}%</p>", unsafe_allow_html=True)
+        st.progress(datos['numeros'][1]/100)
+    with c2:
+        st.markdown(f"<p>{etiquetas[2]}: {datos['numeros'][2]}%</p>", unsafe_allow_html=True)
+        st.progress(datos['numeros'][2]/100)
+        st.markdown(f"<p>{etiquetas[3]}: {datos['numeros'][3]}%</p>", unsafe_allow_html=True)
+        st.progress(datos['numeros'][3]/100)
+    
+    st.markdown("### 🔄 Variantes Registradas")
+    st.markdown("*Haz clic en cualquier variante para explorarla*")
+    
+    return datos['variantes']
+
+# ========================================
+# INTERFAZ PRINCIPAL
+# ========================================
+
+with st.container():
+    st.markdown("<div class='pokedex-frame'>", unsafe_allow_html=True)
+    
+    estado_placeholder = st.empty()
+    
+    # PRIORIDAD 1: Verificar si se pulsó una variante
+    if st.session_state.variante_seleccionada:
+        estado_placeholder.markdown(f"<div class='status-indicator'>🔄 Accediendo a datos de {st.session_state.variante_seleccionada}...</div>", unsafe_allow_html=True)
+        
+        try:
+            prompt = obtener_prompt_base(st.session_state.variante_seleccionada)
+            respuesta = consultar_ia(prompt)
+            datos = procesar_respuesta(respuesta)
+            
+            # Heredar categoría si existe
+            if st.session_state.categoria_actual:
+                datos['categoria'] = st.session_state.categoria_actual
+            
+            etiquetas = obtener_etiquetas(datos['categoria'])
+            
+            # Actualizar ruta
+            st.session_state.historial_ruta.append(datos['nombre'])
+            st.session_state.categoria_actual = datos['categoria']
+            
+            col_img, col_info = st.columns([1, 2])
+            
+            with col_img:
+                st.info(f"ℹ️ Consultando base de datos para:\n\n**{datos['nombre']}**")
+            
+            with col_info:
+                variantes = renderizar_ficha(datos, etiquetas)
                 
-                respuesta_cruda = chat.choices[0].message.content
-
-                # ========================================
-                # EXTRACCIÓN SANITIZADA (UNA SOLA VEZ)
-                # ========================================
-                nombre = extraer_dato("NOMBRE", respuesta_cruda)
-                categoria = extraer_dato("CATEGORIA", respuesta_cruda).upper()
-                descripcion = extraer_dato("DESC", respuesta_cruda)
-                historia = extraer_dato("HISTORIA", respuesta_cruda)
-                stats_raw = extraer_dato("STATS", respuesta_cruda)
-                evos_raw = extraer_dato("EVOS", respuesta_cruda)
+                # Botones de variantes
+                for var in variantes:
+                    if st.button(f"🔍 {var}", key=f"var_{var}"):
+                        st.session_state.variante_seleccionada = var
+                        st.rerun()
+            
+            # Audio
+            texto_audio = f"{datos['nombre']}. {datos['descripcion']}. {datos['historia'][:180]}"
+            texto_audio = sanitizar_texto(texto_audio)
+            tts = gTTS(text=texto_audio, lang='es')
+            fp = io.BytesIO()
+            tts.write_to_fp(fp)
+            st.audio(fp)
+            
+            estado_placeholder.markdown("<div class='status-indicator'>✅ Datos cargados</div>", unsafe_allow_html=True)
+            
+            # Resetear selección
+            st.session_state.variante_seleccionada = None
+            
+        except Exception as e:
+            estado_placeholder.markdown("<div class='status-indicator'>❌ Error al cargar variante</div>", unsafe_allow_html=True)
+            st.error(f"Error: {e}")
+    
+    # PRIORIDAD 2: Escaneo de imagen
+    else:
+        estado_placeholder.markdown("<div class='status-indicator'>⏳ Esperando objetivo...</div>", unsafe_allow_html=True)
+        
+        col_img, col_info = st.columns([1, 2])
+        
+        with col_img:
+            archivo = st.file_uploader("", type=["jpg", "png", "jpeg"])
+            if archivo:
+                st.image(PIL.Image.open(archivo), use_container_width=True)
+                analizar = st.button("🔍 ESCANEAR OBJETIVO")
+        
+        if archivo and analizar:
+            estado_placeholder.markdown("<div class='status-indicator'>🔄 Analizando imagen...</div>", unsafe_allow_html=True)
+            
+            try:
+                img_b64 = encode_image(archivo)
+                prompt = obtener_prompt_base()
+                respuesta = consultar_ia(prompt, img_b64)
+                datos = procesar_respuesta(respuesta)
+                etiquetas = obtener_etiquetas(datos['categoria'])
                 
-                # Procesar números de stats
-                numeros = [int(n) for n in re.findall(r'\d+', stats_raw)][:4]
-                while len(numeros) < 4: 
-                    numeros.append(0)
-                numeros = [min(100, max(0, n)) for n in numeros]
-
-                # ========================================
-                # INTERRUPTOR DE ETIQUETAS (LABEL SWITCHER)
-                # ========================================
-                if "ANIMAL" in categoria:
-                    etiquetas = ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
-                elif "LUGAR" in categoria:
-                    etiquetas = ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
-                else:  # COMIDA por defecto
-                    categoria = "COMIDA"  # Forzar categoría si no está clara
-                    etiquetas = ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
-
-                # ========================================
-                # RENDERIZADO ÚNICO (SIN DUPLICADOS)
-                # ========================================
+                # Resetear e iniciar ruta
+                st.session_state.historial_ruta = [datos['nombre']]
+                st.session_state.categoria_actual = datos['categoria']
+                
                 with col_info:
-                    # Título
-                    st.markdown(f"## 📋 {nombre}")
+                    variantes = renderizar_ficha(datos, etiquetas)
                     
-                    # Categoría y descripción
-                    st.markdown(f"<div class='data-card'><p><b>CATEGORÍA:</b> {categoria}</p><p>{descripcion}</p></div>", unsafe_allow_html=True)
-                    
-                    # Historia con fondo
-                    st.markdown("### 📖 Historia")
-                    st.markdown(f"<div class='historia-box'><p>{historia}</p></div>", unsafe_allow_html=True)
-                    
-                    # Stats con etiquetas correctas
-                    st.markdown("### 📊 Puntos Base")
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.markdown(f"<p>{etiquetas[0]}: {numeros[0]}%</p>", unsafe_allow_html=True)
-                        st.progress(numeros[0]/100)
-                        st.markdown(f"<p>{etiquetas[1]}: {numeros[1]}%</p>", unsafe_allow_html=True)
-                        st.progress(numeros[1]/100)
-                    with c2:
-                        st.markdown(f"<p>{etiquetas[2]}: {numeros[2]}%</p>", unsafe_allow_html=True)
-                        st.progress(numeros[2]/100)
-                        st.markdown(f"<p>{etiquetas[3]}: {numeros[3]}%</p>", unsafe_allow_html=True)
-                        st.progress(numeros[3]/100)
-
-                    # Variantes filtradas (solo sustantivos)
-                    st.markdown("### 🔄 Variantes Registradas")
-                    variantes = [v.strip() for v in evos_raw.split(",") if v.strip() and len(v.strip()) > 2]
-                    for var in variantes[:3]:
-                        st.markdown(f"<span class='evo-tag'>{var}</span>", unsafe_allow_html=True)
-
+                    # Botones de variantes
+                    for var in variantes:
+                        if st.button(f"🔍 {var}", key=f"var_{var}"):
+                            st.session_state.variante_seleccionada = var
+                            st.rerun()
+                
                 # Audio
-                texto_audio = f"{nombre}. {descripcion}. {historia[:180]}"
+                texto_audio = f"{datos['nombre']}. {datos['descripcion']}. {datos['historia'][:180]}"
                 texto_audio = sanitizar_texto(texto_audio)
                 tts = gTTS(text=texto_audio, lang='es')
                 fp = io.BytesIO()
                 tts.write_to_fp(fp)
                 st.audio(fp)
                 
-                # Actualizar estado a completado
                 estado_placeholder.markdown("<div class='status-indicator'>✅ Escaneo completado</div>", unsafe_allow_html=True)
-
+                
             except Exception as e:
                 estado_placeholder.markdown("<div class='status-indicator'>❌ Error en escaneo</div>", unsafe_allow_html=True)
-                st.error(f"⚠️ Error: {str(e)}")
-                
+                st.error(f"Error: {e}")
+    
     st.markdown("</div>", unsafe_allow_html=True)
