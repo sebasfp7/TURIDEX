@@ -11,11 +11,18 @@ from gtts import gTTS
 
 st.set_page_config(page_title="TURIDEX", layout="wide")
 
-SELECTED_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+# ====================== CONFIGURACIÓN DE MODELOS ======================
+MODELS = {
+    "vision": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "text": "llama-3.3-70b-versatile",
+    "fallback": "llama3-70b-8192"
+}
 
 if 'current_item' not in st.session_state: st.session_state.current_item = None
 if 'current_category' not in st.session_state: st.session_state.current_category = None
 if 'current_data' not in st.session_state: st.session_state.current_data = None
+if 'current_image' not in st.session_state: st.session_state.current_image = None
+if 'current_audio' not in st.session_state: st.session_state.current_audio = None
 if 'log' not in st.session_state: st.session_state.log = []
 
 st.markdown("""
@@ -35,13 +42,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown("<h1 class='title'>⚡ TURIDEX ⚡</h1>", unsafe_allow_html=True)
-st.markdown(f"<div class='header'>📡 MODELO: {SELECTED_MODEL}</div>", unsafe_allow_html=True)
+st.markdown(f"<div class='header'>📡 MODELO ACTIVO: {MODELS['vision']}</div>", unsafe_allow_html=True)
 
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
 def add_log(msg):
     st.session_state.log.append(msg)
-    if len(st.session_state.log) > 10: st.session_state.log.pop(0)
+    if len(st.session_state.log) > 12: st.session_state.log.pop(0)
 
 def resize_image(image_file):
     img = Image.open(image_file)
@@ -55,7 +62,7 @@ def resize_image(image_file):
 def generate_image(name):
     try:
         url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(f'{name}, realistic, high quality, clean background, national geographic style')}"
-        resp = requests.get(url + "?width=700&height=500&nologo=true", timeout=10)
+        resp = requests.get(url + "?width=700&height=500&nologo=true", timeout=12)
         if resp.status_code == 200:
             return Image.open(BytesIO(resp.content))
     except:
@@ -64,29 +71,27 @@ def generate_image(name):
 
 def get_prompt(is_image=True, item_name=None, category=None):
     if is_image:
-        return """Analiza la imagen y responde **SOLO** con un JSON válido. Historia debe ser larga y detallada (mínimo 120 palabras en total).
+        return """Analiza la imagen y responde **SOLO** con un JSON válido. La historia debe ser larga y detallada (mínimo 180 palabras en total).
 
 {
   "nombre": "Nombre claro",
   "categoria": "ANIMAL",
   "desc": "Descripción corta máximo 15 palabras",
-  "historia": "Dos párrafos largos y ricos en información real (origen, hábitat, comportamiento, curiosidades)",
-  "stats": [90, 85, 80, 70],
+  "historia": "Dos párrafos extensos con origen, hábitat, comportamiento, curiosidades e importancia cultural",
+  "stats": [88, 85, 78, 65],
   "evos": ["Tigre", "Leopardo", "Jaguar"]
 }
 
-Reglas importantes:
-- Si es ANIMAL: Fuerza, Agilidad, Peligro y Rareza deben ser altos para animales imponentes como leones (mínimo 70).
-- Las evos deben ser solo nombres cortos del mismo tipo."""
+Reglas: Para animales imponentes como leones, stats deben ser altos (Fuerza, Agilidad y Peligro >70)."""
     else:
-        return f"""Responde **solo** con un JSON válido sobre "{item_name}". La historia debe ser larga y detallada.
+        return f"""Responde **solo** con un JSON válido y detallado sobre "{item_name}":
 
 {{
   "nombre": "{item_name}",
   "categoria": "{category or 'ANIMAL'}",
   "desc": "descripción corta",
-  "historia": "Dos párrafos largos con información real (origen, características, curiosidades, importancia)",
-  "stats": [88, 82, 78, 65],
+  "historia": "dos párrafos extensos y bien documentados",
+  "stats": [85, 82, 75, 68],
   "evos": ["Nombre1", "Nombre2", "Nombre3"]
 }}"""
 
@@ -104,6 +109,34 @@ def get_labels(category):
     if "ANIMAL" in cat: return ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
     elif any(x in cat for x in ["LUGAR", "ARTE", "PERSONA"]): return ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
     else: return ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
+
+def process_item(item_name, category=None, image_b64=None):
+    try:
+        prompt = get_prompt(is_image=bool(image_b64), item_name=item_name, category=category)
+        if image_b64:
+            response = client.chat.completions.create(
+                messages=[{"role": "user", "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
+                ]}],
+                model=MODELS["vision"],
+                temperature=0.1,
+                max_tokens=1200
+            )
+        else:
+            response = client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model=MODELS["text"],
+                temperature=0.1,
+                max_tokens=1000
+            )
+        data = parse_json(response.choices[0].message.content)
+        if data:
+            return data
+        return None
+    except Exception as e:
+        add_log(f"[ERROR] {str(e)}")
+        return None
 
 with st.container():
     st.markdown("<div class='frame'>", unsafe_allow_html=True)
@@ -124,61 +157,38 @@ with st.container():
             st.image(archivo, use_container_width=True)
             if st.button("🔍 ESCANEAR OBJETIVO", type="primary", use_container_width=True):
                 st.session_state.log = ["[START] Nueva petición iniciada"]
-                st.session_state.current_item = "Procesando imagen..."
-                st.rerun()
-
-    with col_info:
-        if st.session_state.current_item == "Procesando imagen...":
-            try:
-                add_log = lambda x: st.session_state.log.append(x)
-                add_log("[1] Optimizando imagen...")
                 bytes_opt = resize_image(archivo)
                 b64 = base64.b64encode(bytes_opt).decode()
-                add_log("[2] Enviando al modelo...")
-
-                prompt = get_prompt(is_image=True)
-                response = client.chat.completions.create(
-                    messages=[{"role": "user", "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
-                    ]}],
-                    model=SELECTED_MODEL,
-                    temperature=0.1,
-                    max_tokens=1200
-                )
-                add_log("[3] Respuesta recibida")
-                data = parse_json(response.choices[0].message.content)
-                
+                st.session_state.current_item = "Procesando imagen..."
+                st.session_state.current_data = None
+                data = process_item("imagen_cargada", image_b64=b64)
                 if data:
                     st.session_state.current_item = data.get("nombre", "León")
                     st.session_state.current_category = data.get("categoria", "ANIMAL")
                     st.session_state.current_data = data
-                    add_log(f"[SUCCESS] → {st.session_state.current_item}")
-                    st.rerun()
-            except Exception as e:
-                st.session_state.log.append(f"[ERROR] {str(e)}")
-                st.error(f"Error: {str(e)}")
+                    st.session_state.current_image = generate_image(st.session_state.current_item)
+                    add_log(f"[SUCCESS] Análisis completado → {st.session_state.current_item}")
+                st.rerun()
 
-        elif st.session_state.current_item and st.session_state.current_data:
+    with col_info:
+        if st.session_state.current_data:
             data = st.session_state.current_data
             labels = get_labels(data.get("categoria", "ANIMAL"))
             stats = data.get("stats", [80, 80, 75, 65])
             variantes = data.get("evos", ["Tigre", "Leopardo", "Jaguar"])[:3]
 
             with col_img:
-                img = generate_image(data.get("nombre", "León"))
-                if img:
-                    st.image(img, use_container_width=True, caption=data.get("nombre"))
-                else:
-                    if 'archivo' in locals():
-                        st.image(archivo, use_container_width=True)
+                if st.session_state.current_image:
+                    st.image(st.session_state.current_image, use_container_width=True, caption=data.get("nombre"))
+                elif archivo:
+                    st.image(archivo, use_container_width=True)
 
             with col_info:
                 st.markdown(f"## {data.get('nombre', 'León')}")
                 st.markdown(f"<div class='data-card'><b>Categoría:</b> {data.get('categoria', 'ANIMAL')}</div>", unsafe_allow_html=True)
                 
                 st.markdown("### 📖 Historia")
-                st.markdown(f"<div class='historia-box'>{data.get('historia', 'Historia no disponible.')}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='historia-box'>{data.get('historia', 'Sin historia disponible.')}</div>", unsafe_allow_html=True)
                 
                 st.markdown("### 📊 Puntos Base")
                 c1, c2 = st.columns(2)
@@ -194,18 +204,25 @@ with st.container():
                 st.markdown("### 🔄 Variantes")
                 for var in variantes:
                     if st.button(var, key=f"var_{var}", use_container_width=True):
+                        add_log(f"[VARIANT] Cargando {var}...")
                         st.session_state.current_item = var
                         st.session_state.current_category = data.get("categoria", "ANIMAL")
                         st.session_state.current_data = None
+                        st.session_state.current_image = None
+                        st.session_state.current_audio = None
                         st.rerun()
 
-                try:
-                    text_audio = f"{data.get('nombre')}. {data.get('desc', '')}. {data.get('historia', '')}"
-                    tts = gTTS(text_audio, lang='es')
-                    fp = io.BytesIO()
-                    tts.write_to_fp(fp)
-                    st.audio(fp)
-                except:
-                    pass
+                # Audio (caché)
+                if st.session_state.current_audio is None:
+                    try:
+                        text = f"{data.get('nombre')}. {data.get('desc', '')}. {data.get('historia', '')}"
+                        tts = gTTS(text, lang='es')
+                        fp = io.BytesIO()
+                        tts.write_to_fp(fp)
+                        st.session_state.current_audio = fp.getvalue()
+                    except:
+                        st.session_state.current_audio = b''
+                if st.session_state.current_audio:
+                    st.audio(st.session_state.current_audio)
 
     st.markdown("</div>", unsafe_allow_html=True)
