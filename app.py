@@ -33,7 +33,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────────────────────────────────
-# FILTRO DE REALIDAD (STATS)
+# FILTRO DE REALIDAD (STATS PROGRAMÁTICOS)
 # ──────────────────────────────────────────────────────────────────────────
 def calcular_stats_realistas(nombre, categoria, desc=""):
     nombre_lower = (nombre + " " + desc).lower()
@@ -129,12 +129,12 @@ with st.container():
         if st.session_state.needs_analysis:
             progress = st.status("🚀 Iniciando procesamiento multimodal...", expanded=True)
             try:
-                # PASO 1: VISIÓN (Usamos el MISMO modelo Scout)
+                # PASO 1: VISIÓN (Usamos Scout para describir la imagen)
                 progress.update(label="👁️ [PASO 1/2] Analizando imagen con Scout Vision...", state="running")
                 b64_img = base64.b64encode(st.session_state.last_image_bytes).decode()
                 res_v = client.chat.completions.create(
                     messages=[{"role": "user", "content": [
-                        {"type": "text", "text": "Describe con máximo detalle técnico este objeto, animal o lugar. Sé específico sobre colores, formas, texturas y cualquier texto visible."},
+                        {"type": "text", "text": "Describe con máximo detalle técnico este objeto, animal o lugar. Sé específico sobre colores, formas, texturas, ubicación si se ve, y cualquier texto visible."},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}}
                     ]}],
                     model=SELECTED_MODEL,
@@ -142,25 +142,28 @@ with st.container():
                     max_tokens=1024
                 )
                 descripcion_visual = res_v.choices[0].message.content
-                add_log("[VISION-OK] Imagen analizada con Scout")
+                add_log("[VISION-OK] Imagen analizada con Scout Vision")
 
                 # PASO 2: ANALISTA ESTRUCTURADO (EL "CEREBRO")
-                progress.update(label="🧠 [PASO 2/2] Consultando base de datos histórica...", state="running")
-                add_log("[CEREBRO] Generando ficha técnica...")
+                progress.update(label="🧠 **[PASO 2/2] Consultando base de datos histórica...", state="running")
+                add_log("[VISION-P2] Generando ficha TURIDEX estructurada...")
                 
-                prompt_p2 = f"""Eres TURIDEX, base de datos experta. Analiza: {descripcion_visual}
-                
-                Reglas:
-                - Nombre PROPIO específico (ej: "Torre del Reloj de Cartagena").
-                - Historia: Mínimo 180 palabras, 2 párrafos densos (Origen + Datos Curiosos reales).
-                - JSON válido con: nombre, categoria (ANIMAL, COMIDA, LUGAR, ARTE, OBJETO), desc, historia, stats [50,50,50,50], evos [3 reales].
-                - Responde SOLO JSON."""
+                prompt_p2 = f"""Eres TURIDEX, una base de datos enciclopédica experta. Analiza: {descripcion_visual}
+
+                Responde SOLO un JSON válido con:
+                - nombre: Nombre PROPIO específico.
+                - categoria: ANIMAL, LUGAR, COMIDA, ARTE o OBJETO.
+                - desc: Máximo 15 palabras.
+                - historia: Mínimo 180 palabras, 2 párrafos densos (Origen + Datos Curiosos).
+                - stats: [50, 50, 50, 50].
+                - evos: [3 variantes reales]."""
 
                 response_p2 = client.chat.completions.create(
                     messages=[{"role": "user", "content": prompt_p2}],
                     model=SELECTED_MODEL,
                     temperature=0.1,
-                    max_tokens=2048
+                    max_tokens=2048,
+                    timeout=30.0
                 )
                 
                 raw_content = response_p2.choices[0].message.content
@@ -168,58 +171,71 @@ with st.container():
                 
                 if data:
                     # 💉 FILTRO DE REALIDAD
-                    data["stats"] = calcular_stats_realistas(data.get("nombre",""), data.get("categoria",""), data.get("desc",""))
+                    data["stats"] = calcular_stats_realistas(data.get("nombre", ""), data.get("categoria", ""), data.get("desc", ""))
                     st.session_state.current_data = data
                     st.session_state.current_image = generate_image(data.get("nombre"))
                     
-                    # Audio
                     try:
                         tts = gTTS(f"{data['nombre']}. {data['desc']}. {data['historia']}", lang='es')
-                        af = io.BytesIO(); tts.write_to_fp(af)
-                        st.session_state.current_audio = af.getvalue()
+                        af = io.BytesIO(); tts.write_to_fp(af); st.session_state.current_audio = af.getvalue()
                     except: pass
 
-                    progress.update(label="✅ Ficha TURIDEX generada!", state="complete", expanded=False)
+                    progress.update(label="✅ **Ficha TURIDEX generada!**", state="complete", expanded=False)
                     add_log(f"[SUCCESS] → {data.get('nombre')}")
+                else:
+                    add_log("[ERROR] No se pudo parsear el JSON")
+                    progress.update(label="❌ Error en base de datos", state="error")
             except Exception as e:
-                st.error(f"Error crítico: {e}")
-                add_log(f"[ERROR] {str(e)}")
+                st.error(f"Error crítico: {str(e)}")
+                add_log(f"[CRITICAL] {str(e)}")
             finally:
                 st.session_state.needs_analysis = False
                 st.rerun()
 
-        # RENDERIZADO DE RESULTADOS
+        # ══════════════════════════════════════
+        # RENDERIZAR FICHA TURIDEX (CON PROTECCIÓN CONTRA CRASH)
+        # ══════════════════════════════════════
         if st.session_state.current_data:
             data = st.session_state.current_data
-            st.markdown(f"## 💠 {data['nombre']}")
-            st.info(f"**Categoría:** {data['categoria']} | {data['desc']}")
+            
+            st.markdown(f"## 💠 {data.get('nombre', 'Desconocido')}")
+            st.info(f"**Categoría:** {data.get('categoria', 'N/A')} | {data.get('desc', '')}")
             
             if st.session_state.get('current_image'):
                 st.image(st.session_state.current_image, use_container_width=True)
             
             st.markdown("### 📜 Registros Históricos")
-            st.markdown(f"<div class='historia-box'>{data['historia']}</div>", unsafe_allow_html=True)
+            historia_text = data.get('historia', 'No hay registros disponibles.')
+            st.markdown(f"<div class='historia-box'>{historia_text}</div>", unsafe_allow_html=True)
             
             if st.session_state.get('current_audio'):
                 st.audio(st.session_state.current_audio)
 
             st.markdown("### 📊 Atributos de Realidad")
-            cat = data['categoria'].upper()
-            labels = ["Stat 1", "Stat 2", "Stat 3", "Stat 4"]
+            cat = str(data.get('categoria', '')).upper()
             if "ANIMAL" in cat: labels = ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
             elif "COMIDA" in cat: labels = ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
             else: labels = ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
             
             c1, c2 = st.columns(2)
+            stats_data = data.get('stats', [50, 50, 50, 50])
             for i, label in enumerate(labels):
+                val = stats_data[i] if i < len(stats_data) else 50
                 with (c1 if i < 2 else c2):
-                    val = data['stats'][i]
                     st.write(f"{label}: **{val}%**")
-                    st.progress(val/100)
+                    st.progress(val / 100)
             
             st.markdown("### 🔄 Variantes Relacionadas")
-            vcols = st.columns(3)
-            for idx, evo in enumerate(data.get("evos", [])[:3]):
-                vcols[idx].button(evo, key=f"v_{evo}", use_container_width=True)
+            evos_raw = data.get("evos", [])
+            if isinstance(evos_raw, list):
+                evos_limpias = [str(e) for e in evos_raw if e is not None and str(e).strip()]
+            else: evos_limpias = []
+            
+            if evos_limpias:
+                vcols = st.columns(min(3, len(evos_limpias)))
+                for idx, evo in enumerate(evos_limpias[:3]):
+                    vcols[idx % 3].button(f"🔍 {evo}", key=f"v_{idx}_{hash(evo)}", use_container_width=True)
+            else:
+                st.caption("No hay variantes registradas.")
 
     st.markdown("</div>", unsafe_allow_html=True)
