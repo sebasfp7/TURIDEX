@@ -82,7 +82,7 @@ def get_visual_description_prompt():
     return """MIRA LA IMAGEN ADJUNTA con máxima atención como un perito experto. Describe con TODO DETALLE TÉCNICO posible:
 
 ARQUITECTURA / ESTRUCTURA:
-- Estilo exacto (colonial español, republicano, barroco, neoclásico, etc.)
+- Estilo arquitectónico exacto (colonial español, republicano, barroco, neoclásico, etc.)
 - Materiales visibles (piedra caliza, ladrillo, madera, hormigón)
 - Forma y proporciones (torre cuadrada, octogonal, circular, altura aproximada)
 - Elementos distintivos (relojes, campanas, arcos, columnas, esculturas, inscripciones)
@@ -92,7 +92,7 @@ COLORES Y TEXTURAS:
 - Estado de conservación (nuevo, restaurado, envejecido, ruinoso)
 
 ELEMENTOS ESPECÍFICOS:
-- ¿Hay relojes? ¿Forma de las esferas? ¿Números romanos o arábigos?
+- ¿Hay relojes? ¿Qué forma tienen? ¿Números romanos o arábigos?
 - ¿Hay textos, placas, letreros visibles? ¿Qué dicen exactamente?
 - ¿Hay vegetación, flora característica (palmeras, buganvillas)?
 - ¿Hay personas, vehículos o objetos que den escala?
@@ -114,37 +114,62 @@ REGLAS:
 def get_structured_prompt(descripcion_visual):
     return f"""Eres TURIDEX, una base de datos enciclopédica precisa.
 
-Tienes esta descripción técnica detallada de una imagen:
+Tienes esta descripción técnica detallada de una imagen analizada por un perito visual:
 
-─── DESCRIPCIÓN VISUAL ───
+─── INICIO DESCRIPCIÓN ───
 {descripcion_visual}
 ─── FIN DESCRIPCIÓN ───
 
-Tu tarea: IDENTIFICAR el lugar, objeto, animal o comida ESPECÍFICO y generar su ficha técnica.
+Tu tarea: IDENTIFICAR el objeto/lugar/animal/comida ESPECÍFICO y generar su ficha técnica.
 
 REGLAS DE IDENTIFICACIÓN:
 - NUNCA uses nombres genéricos ("Edificio", "Torre", "Puerta", "Animal").
-- Si la descripción menciona reloj + muralla + Cartagena → El nombre DEBE ser "Torre del Reloj de Cartagena (Puerta de San Felipe)".
-- Si menciona sonrisa enigmática + mujer renacentista → "La Gioconda (Mona Lisa)".
-- Si menciona felino grande + melena + África → "León Africano".
+- Si la descripción menciona: reloj + torre + Cartagena/Colombia/amurallada → El nombre DEBE ser "Torre del Reloj de Cartagena (Puerta de San Felipe)".
+- Si menciona: sonrisa enigmática + mujer renacentista → "La Gioconda (Mona Lisa)".
+- Si menciona: felino grande + melena + África → "León Africano".
 
-Responde **SOLO** con este JSON válido. Sin markdown. Sin texto adicional:
+Responde **SOLO** con este JSON válido. Sin markdown. Sin texto antes ni después:
 
 {{
   "nombre": "Nombre propio y específico",
-  "categoria": "LUGAR",
-  "desc": "Descripción corta máximo 15 palabras",
-  "historia": "Dos párrafos largos y detallados (mínimo 180 palabras total) con origen, historia, características y curiosidades reales",
+  "categoria": "ANIMAL / LUGAR / COMIDA / ARTE",
+  "desc": "Descripción corta, máximo 15 palabras, precisa y única",
+  "historia": "Dos párrafos largos y detallados (mínimo 180 palabras total) con: origen histórico, datos curiosos, importancia cultural, características únicas. Información real y documentada.",
   "stats": [85, 80, 75, 70],
-  "evos": ["NombreEspecífico1", "NombreEspecífico2", "NombreEspecífico3"]
+  "evos": ["VarianteEspecífica1", "VarianteEspecífica2", "VarianteEspecífica3"]
 }}
 
-Reglas de stats:
+Reglas de stats según categoría:
 - ANIMAL: [Fuerza, Agilidad, Peligro, Rareza]
-- LUGAR/ARTE: [Historia, Belleza, Cultura, Rareza]
+- LUGAR/ARTE/PERSONA: [Historia, Belleza, Cultura, Rareza]
 - COMIDA: [Sabor, Picante, Salud, Rareza]
 
-Stats de cosas famosas/imponentes deben ser altos (>75)."""
+Los stats de cosas famosas/imponentes deben ser >75.
+Las evos deben ser variantes reales o relacionadas del mismo tipo."""
+
+def parse_json(text):
+    if not text or not isinstance(text, str):
+        return None
+    text = text.strip()
+    text = re.sub(r'```json\s*|\s*```', '', text)
+    text = re.sub(r'^.*?(\{.*\})', r'\1', text, flags=re.DOTALL)
+    text = re.sub(r'(\{.*\}).*?$', r'\1', text, flags=re.DOTALL)
+    try:
+        return json.loads(text)
+    except:
+        try:
+            match = re.search(r'(\{.*\})', text, re.DOTALL)
+            if match:
+                return json.loads(match.group(1))
+        except:
+            pass
+    return None
+
+def get_labels(category):
+    cat = str(category).upper()
+    if "ANIMAL" in cat: return ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
+    elif any(x in cat for x in ["LUGAR", "ARTE", "PERSONA"]): return ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
+    else: return ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
 
 with st.container():
     st.markdown("<div class='frame'>", unsafe_allow_html=True)
@@ -228,7 +253,7 @@ with st.container():
                         st.session_state.current_image = generate_image(st.session_state.current_item)
                         add_log(f"[SUCCESS] Análisis completado → {st.session_state.current_item}")
                     else:
-                        add_log("[ERROR] No se pudo parsear el JSON")
+                        add_log("[ERROR] No se pudo parsear el JSON final")
                         st.session_state.current_data = None
                         st.session_state.current_item = "Error de análisis"
 
