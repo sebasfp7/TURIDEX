@@ -16,14 +16,14 @@ st.markdown("""
         background-size: cover; background-attachment: fixed;
     }
     .pokedex-frame {
-        background-color: rgba(20, 20, 20, 0.95); /* Fondo casi negro para máximo contraste */
+        background-color: rgba(20, 20, 20, 0.95);
         border: 5px solid #DC0A2D;
         border-radius: 15px;
         padding: 25px;
         color: white;
     }
     .text-box {
-        background-color: #303030; /* Fondo gris oscuro para el texto */
+        background-color: #303030;
         padding: 15px;
         border-radius: 8px;
         border: 1px solid #555;
@@ -38,6 +38,11 @@ st.markdown("""
         font-weight: bold;
         display: inline-block;
         margin: 5px;
+    }
+    /* Estilo específico para que la letra de los Puntos Base sea negra */
+    .stats-label {
+        color: #000000 !important;
+        font-weight: bold;
     }
     h1, h2, h3, p, span { color: white !important; }
 </style>
@@ -97,7 +102,6 @@ if archivo and btn:
             stats_raw = extraer("STATS", res)
             evos_raw = extraer("EVOS", res)
 
-            # Lógica de Stats
             nums = [int(n) for n in re.findall(r'\d+', stats_raw)][0:4]
             while len(nums) < 4: nums.append(0)
 
@@ -108,13 +112,19 @@ if archivo and btn:
                 
                 st.subheader("📊 Puntos Base")
                 labels = ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
+                
+                # Se aplica la clase 'stats-label' para forzar color negro
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.write(f"{labels[0]}: {nums[0]}%"); st.progress(nums[0]/100)
-                    st.write(f"{labels[1]}: {nums[1]}%"); st.progress(nums[1]/100)
+                    st.markdown(f"<span class='stats-label'>{labels[0]}: {nums[0]}%</span>", unsafe_allow_html=True)
+                    st.progress(nums[0]/100)
+                    st.markdown(f"<span class='stats-label'>{labels[1]}: {nums[1]}%</span>", unsafe_allow_html=True)
+                    st.progress(nums[1]/100)
                 with c2:
-                    st.write(f"{labels[2]}: {nums[2]}%"); st.progress(nums[2]/100)
-                    st.write(f"{labels[3]}: {nums[3]}%"); st.progress(nums[3]/100)
+                    st.markdown(f"<span class='stats-label'>{labels[2]}: {nums[2]}%</span>", unsafe_allow_html=True)
+                    st.progress(nums[2]/100)
+                    st.markdown(f"<span class='stats-label'>{labels[3]}: {nums[3]}%</span>", unsafe_allow_html=True)
+                    st.progress(nums[3]/100)
 
                 st.subheader("🔄 Variantes")
                 for e in evos_raw.split(","):
