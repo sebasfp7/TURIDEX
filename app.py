@@ -2,32 +2,16 @@ import streamlit as st
 import google.generativeai as genai
 import PIL.Image
 from gtts import gTTS
-import os
 import re
-import json
-import io
+from database import TURIDEX_PEDIA # Importamos tu base de datos gigante
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Turidex", page_icon="📸")
-st.title("📸 TURIDEX: Inteligencia Automática")
+st.title("📸 TURIDEX: Sistema Automático")
 
-# --- CARGAR BASE DE DATOS ---
-def cargar_datos():
-    try:
-        with open('datos_comida.json', 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except:
-        return {}
-
-TURIDEX_PEDIA = cargar_datos()
-
-# --- CONFIGURACIÓN IA ---
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-# Usamos el modelo Flash para que sea instantáneo
+# Modelo Flash (más rápido y menos propenso a errores de saturación)
 model = genai.GenerativeModel('gemini-1.5-flash')
-
-def limpiar_texto(t):
-    return re.sub(r'[*#_]', '', t)
 
 archivo_subido = st.file_uploader("Sube una foto...", type=["jpg", "png", "jpeg"])
 
@@ -35,49 +19,46 @@ if archivo_subido is not None:
     imagen = PIL.Image.open(archivo_subido).convert("RGB")
     st.image(imagen, use_container_width=True)
     
-    if st.button("🔍 IDENTIFICAR AUTOMÁTICAMENTE"):
-        with st.status("🚀 Turidex analizando...", expanded=True) as status:
-            
-            # PASO 1: Identificación rápida del nombre
+    if st.button("🔍 ANALIZAR AUTOMÁTICAMENTE"):
+        with st.status("🕵️ Identificando...", expanded=True) as status:
             try:
-                status.write("🕵️ Identificando plato...")
-                prompt_nombre = "Responde SOLO el nombre del plato de la imagen en 2 o 3 palabras máximo."
-                res_nombre = model.generate_content([prompt_nombre, imagen])
-                nombre_identificado = res_nombre.text.lower().strip().replace(".", "")
+                # 1. IDENTIFICACIÓN RÁPIDA (Solo nombre)
+                # Al pedir solo el nombre, Google gasta menos recursos y no te bloquea tanto
+                res = model.generate_content(["Dime solo el nombre de este plato (2 palabras máximo)", imagen])
+                nombre_ia = res.text.lower().strip()
                 
-                # PASO 2: Buscar en la base de datos (Búsqueda inteligente)
-                info_encontrada = None
+                # 2. BÚSQUEDA EN BASE DE DATOS
+                encontrado = None
                 for clave in TURIDEX_PEDIA:
-                    if clave in nombre_identificado or nombre_identificado in clave:
-                        info_encontrada = TURIDEX_PEDIA[clave]
-                        nombre_final = clave.title()
+                    if clave in nombre_ia or nombre_ia in clave:
+                        encontrado = TURIDEX_PEDIA[clave]
                         break
                 
-                # PASO 3: Mostrar resultados
-                if info_encontrada:
-                    status.update(label="✅ ¡Encontrado en la enciclopedia!", state="complete")
-                    texto_completo = f"NOMBRE: {nombre_final}\n\nHISTORIA: {info_encontrada['history']}\n\nDATO CURIOSO: {info_encontrada['dato']}"
-                    query_mapa = info_encontrada['mapa']
+                if encontrado:
+                    status.update(label="✅ Información recuperada!", state="complete")
+                    
+                    st.header(f"📍 {encontrado['nombre']}")
+                    
+                    # Mostramos la información LARGA que escribiste en el archivo
+                    st.markdown("### 📖 Historia")
+                    st.write(encontrado['history'])
+                    
+                    st.markdown("### 💡 Dato Curioso")
+                    st.info(encontrado['dato'])
+                    
+                    # Botón de Mapa
+                    link = f"https://www.google.com/maps/search/{encontrado['mapa']}+cerca+de+mi"
+                    st.link_button(f"🍴 BUSCAR {encontrado['nombre'].upper()} CERCA", link)
+                    
+                    # Audio
+                    texto_audio = f"{encontrado['nombre']}. {encontrado['history']}. {encontrado['dato']}"
+                    tts = gTTS(text=re.sub(r'[*#_]', '', texto_audio), lang='es')
+                    tts.save("voz.mp3")
+                    st.audio("voz.mp3")
+                
                 else:
-                    status.write("📡 No estaba en el libro, generando respuesta con IA...")
-                    prompt_completo = "Identifica y dame una historia larga y un dato curioso. Formato: NOMBRE: [nombre], HISTORIA: [historia larga], DATO: [dato]"
-                    res_completa = model.generate_content([prompt_completo, imagen])
-                    texto_completo = res_completa.text
-                    nombre_final = nombre_identificado.title()
-                    query_mapa = nombre_identificado
-
-                st.subheader(f"📍 {nombre_final}")
-                st.write(texto_completo)
-                
-                # Mapa y Audio
-                link = f"https://www.google.com/maps/search/{query_mapa.replace(' ', '+')}+cerca+de+mi"
-                st.link_button(f"🍴 BUSCAR {nombre_final.upper()} CERCA", link)
-                
-                audio_limpio = limpiar_texto(texto_completo)
-                tts = gTTS(text=audio_limpio, lang='es')
-                tts.save("voz.mp3")
-                st.audio("voz.mp3")
+                    status.update(label="❓ No está en la base de datos", state="error")
+                    st.warning(f"La IA cree que es '{nombre_ia}', pero no tengo información detallada en mi base de datos.")
 
             except Exception as e:
-                status.update(label="❌ Error de conexión", state="error")
-                st.error("Google está saturado. Intenta de nuevo en un momento.")
+                st.error("Google está saturado en este momento. Intenta en 10 segundos.")
