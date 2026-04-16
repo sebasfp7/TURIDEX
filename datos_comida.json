@@ -1,17 +1,12 @@
 {
+  "pizza": {
+    "historia": "La pizza tiene una historia milenaria. Aunque el pan plano con ingredientes se consumía en la antigua Grecia, la pizza moderna nació en Nápoles, Italia, en el siglo XVIII. Originalmente era comida de gente humilde, vendida en las calles por lanchoneros. En 1889, el chef Raffaele Esposito creó la Pizza Margherita en honor a la reina de Italia, usando tomate, mozzarella y albahaca para representar los colores de la bandera nacional.",
+    "dato": "La pizza más cara del mundo se llama 'Luis XIII' y cuesta 12,000 dólares. Se prepara en Salerno, Italia, y sus ingredientes incluyen tres tipos de caviar, langosta de Noruega y granos de sal rosa del río Murray de Australia.",
+    "mapa": "pizzerias+italianas+artesanales"
+  },
   "cerdo asado": {
-    "historia": "Tradición de campo cocinada a fuego lento.",
-    "dato": "Se recomienda usar leña de árboles frutales.",
-    "mapa": "restaurantes+de+cerdo+asado"
-  },
-  "bandeja paisa": {
-    "historia": "Plato insignia de la región de Antioquia, Colombia.",
-    "dato": "Originalmente era el desayuno de los arrieros para tener energía todo el día.",
-    "mapa": "restaurantes+de+comida+colombiana"
-  },
-  "tacos al pastor": {
-    "historia": "Influencia de la cocina libanesa adaptada con carne de cerdo en México.",
-    "dato": "El 'trompo' es la técnica clásica de apilar la carne.",
-    "mapa": "taquerias+al+pastor"
+    "historia": "El asado de cerdo es una técnica que combina paciencia y tradición. En muchas culturas hispanas, el 'lechón' o cerdo asado es el centro de las celebraciones familiares. La técnica consiste en una cocción lenta, a veces de más de 8 horas, para que la piel quede crujiente (el famoso 'cuerito') y la carne se deshaga sola. Es un símbolo de abundancia y comunidad.",
+    "dato": "El secreto de los grandes maestros asadores es el 'mojo' o adobo, que suele llevar naranja agria, mucho ajo y orégano silvestre, dejando marinar la carne por al menos 24 horas antes de tocar el fuego.",
+    "mapa": "restaurantes+de+lechon+y+asados"
   }
 }
