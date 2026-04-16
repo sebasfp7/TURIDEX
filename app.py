@@ -83,51 +83,30 @@ if archivo:
     st.markdown("</div>", unsafe_allow_html=True)
     
     if st.button("🔍 INICIAR ESCÁNER"):
-        with st.spinner("⏳ Sincronizando con satélites de Turidex..."):
+        with st.spinner("⏳ Analizando con Llama 4 Scout..."):
             try:
                 base64_image = encode_image(archivo)
-                prompt = """Actúa como una Pokédex experta. Analiza la imagen y responde en ESPAÑOL.
-                Stats LÓGICOS (Margarita picante 0). Formato:
+                prompt = """Actúa como una Pokédex de última generación. 
+                Analiza la imagen con lógica absoluta: si es una pizza margarita, el picante es 0. 
+                Responde en ESPAÑOL con este formato:
                 NOMBRE: [Nombre]
                 TIPO: [Categoría]
                 DESC: [Descripción breve]
-                HISTORIA: [Dos párrafos detallados]
-                STATS: [Sabor, Picante, Salud, Rareza - 4 números 0-100]
-                EVOS: [3 versiones alternativas]"""
+                HISTORIA: [Dos párrafos culturales]
+                STATS: [Sabor, Picante, Salud, Rareza - 4 números del 0 al 100]
+                EVOS: [3 versiones alternativas separadas por comas]"""
 
-                # LISTA DE MODELOS ACTUALIZADA A NOMBRES DE PRODUCCIÓN 2026
-                # Si estos fallan, es que Groq tiene un problema global de servidores.
-                modelos_a_probar = [
-                    "llama-3.2-11b-vision-preview", 
-                    "llama-3.2-90b-vision-preview",
-                    "llama-3-vis-70b", # Modelo alternativo de respaldo
-                    "llava-v1.5-7b-4096-preview" # Último recurso
-                ]
+                # MODELO SELECCIONADO POR EL USUARIO
+                chat = client.chat.completions.create(
+                    messages=[{"role": "user", "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                    ]}],
+                    model="meta-llama/llama-4-scout-17b-16e-instruct",
+                    temperature=0.1
+                )
                 
-                res = None
-                ultimo_error = ""
-                
-                for mod in modelos_a_probar:
-                    try:
-                        chat = client.chat.completions.create(
-                            messages=[{"role": "user", "content": [
-                                {"type": "text", "text": prompt},
-                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                            ]}],
-                            model=mod,
-                            temperature=0.1
-                        )
-                        res = chat.choices[0].message.content
-                        break 
-                    except Exception as e:
-                        ultimo_error = str(e)
-                        continue 
-
-                if not res:
-                    st.error(f"❌ Error de Conexión: Ningún modelo disponible.")
-                    st.warning(f"Detalle técnico: {ultimo_error}")
-                    st.info("💡 Tip: Verifica si tu API de Groq tiene límites de uso o si el servicio está caído en console.groq.com")
-                    st.stop()
+                res = chat.choices[0].message.content
 
                 # --- EXTRACCIÓN ROBUSTA ---
                 def extraer(clave, texto):
@@ -145,16 +124,21 @@ if archivo:
                 stats_raw = extraer("STATS", res)
                 evos_raw = extraer("EVOS", res)
 
-                try: nums = [int(n.strip()) for n in stats_raw.replace('[','').replace(']','').split(",")]
-                except: nums = [50, 0, 50, 10]
-                evos = evos_raw.split(",") if "," in evos_raw else ["Normal", "Especial", "Premium"]
+                # Procesamiento de Stats
+                try:
+                    nums = [int(n.strip()) for n in stats_raw.replace('[','').replace(']','').split(",")]
+                except:
+                    nums = [50, 0, 50, 10]
 
-                # --- DISPLAY ---
+                # Procesamiento de Presentaciones
+                evos = evos_raw.split(",") if "," in evos_raw else ["Estándar", "Clásica", "Gourmet"]
+
+                # --- MOSTRAR RESULTADOS ---
                 st.markdown(f"## 📋 {nombre}")
                 st.markdown(f"<div class='data-card'>TIPO: {tipo}<br><i>{desc}</i></div>", unsafe_allow_html=True)
                 st.write(historia)
 
-                st.subheader("📊 Puntos Base")
+                st.subheader("📊 Puntos Base (Llama 4 Logic)")
                 c1, c2 = st.columns(2)
                 labels = ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
                 with c1:
@@ -170,6 +154,7 @@ if archivo:
                     if i < len(evos):
                         with col: st.markdown(f"<div class='evo-card'>{evos[i].strip()}</div>", unsafe_allow_html=True)
 
+                # Audio automático
                 audio_text = f"{nombre}. {tipo}. {desc}. {historia}"
                 tts = gTTS(text=re.sub(r'[*#_]', '', audio_text), lang='es')
                 fp = io.BytesIO()
@@ -177,6 +162,7 @@ if archivo:
                 st.audio(fp)
 
             except Exception as e:
-                st.error(f"Error crítico en el sistema: {e}")
+                st.error(f"Error con el modelo Scout: {e}")
+                st.info("💡 Si el modelo no está disponible, verifica el nombre exacto en tu consola de Groq.")
 
 st.markdown("</div>", unsafe_allow_html=True)
