@@ -80,18 +80,22 @@ def generate_image(name):
 
 def get_prompt(is_image=True, item_name=None, category=None):
     if is_image:
-        return """MIRA LA IMAGEN ADJUNTA atentamente. Identifica qué objeto, animal, comida o lugar aparece en la foto. NO inventes nada. Si ves un edificio con reloj, di edificio. Si ves un león, di león. Responde **SOLO** con un JSON válido. No uses markdown. No escribas nada antes ni después del JSON.
+        return """MIRA LA IMAGEN ADJUNTA atentamente. IDENTIFICA el objeto, lugar, animal o comida ESPECÍFICO que aparece. 
+NO uses nombres genéricos como 'Edificio', 'Animal', 'Planta', 'Torre' o 'Reloj'. 
+Si es un monumento famoso, di SU NOMBRE PROPIO (ej: 'Torre del Reloj de Cartagena', 'Mona Lisa', 'León Blanco'). 
+Si no estás 100% seguro del nombre exacto, da la descripción más específica posible en lugar de un nombre genérico. 
+NO inventes. Responde **SOLO** con un JSON válido. No uses markdown. No escribas nada antes ni después del JSON.
 
 {
-  "nombre": "Nombre claro",
-  "categoria": "ANIMAL",
+  "nombre": "Nombre propio y específico",
+  "categoria": "LUGAR",
   "desc": "Descripción corta máximo 15 palabras",
-  "historia": "Dos párrafos largos y detallados (mínimo 180 palabras total) con origen, hábitat, comportamiento, curiosidades e importancia",
-  "stats": [88, 85, 78, 70],
-  "evos": ["Tigre", "Leopardo", "Jaguar"]
+  "historia": "Dos párrafos largos y detallados (mínimo 180 palabras total) con origen, historia, características y curiosidades",
+  "stats": [85, 80, 75, 70],
+  "evos": ["NombreEspecífico1", "NombreEspecífico2", "NombreEspecífico3"]
 }
 
-Reglas: Para animales imponentes como leones, stats deben ser altos (Fuerza, Agilidad, Peligro >75)."""
+Reglas: Para animales imponentes usa stats altos (Fuerza, Agilidad, Peligro >75). Las evos deben ser del mismo tipo."""
     else:
         return f"""Responde **solo** con un JSON válido sobre "{item_name}". No uses markdown. No escribas nada antes ni después.
 
@@ -157,16 +161,12 @@ with st.container():
     with col_info:
         if st.session_state.get('needs_analysis', False):
             try:
-                rate_limit_check = lambda: (time.sleep(max(0, 2.5 - (time.time() - st.session_state.last_request_time))), 
-                                          setattr(st.session_state, 'last_request_time', time.time()),
-                                          setattr(st.session_state, 'request_count_today', st.session_state.request_count_today + 1))
                 rate_limit_check()
-
                 add_log(f"[PIPELINE] Source: {st.session_state.source}")
 
                 if st.session_state.source == "image" and st.session_state.last_image_bytes:
                     b64 = base64.b64encode(st.session_state.last_image_bytes).decode()
-                    add_log(f"[B64_LEN] {len(b64)} chars | starts with: {b64[:30]}...")   # ← Diagnóstico que pediste
+                    add_log(f"[B64_LEN] {len(b64)} chars | starts with: {b64[:30]}...")
                     add_log("[VISION] Enviando imagen al modelo Scout...")
                     prompt = get_prompt(is_image=True)
                     response = client.chat.completions.create(
@@ -174,7 +174,7 @@ with st.container():
                             {"type": "text", "text": prompt},
                             {"type": "image_url", "image_url": {
                                 "url": f"data:image/jpeg;base64,{b64}",
-                                "detail": "auto"   # ← Arreglo #1 que pediste
+                                "detail": "auto"
                             }}
                         ]}],
                         model=SELECTED_MODEL,
@@ -195,7 +195,7 @@ with st.container():
                     )
 
                 raw_content = response.choices[0].message.content
-                add_log(f"[RAW] {raw_content[:600]}...")   # ← Arreglo #2 que pediste
+                add_log(f"[RAW] {raw_content[:600]}...")
                 add_log("[OK] Respuesta recibida")
 
                 data = parse_json(raw_content)
