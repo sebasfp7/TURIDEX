@@ -31,6 +31,7 @@ st.markdown("""
         border-radius: 15px;
         padding: 25px;
         box-shadow: 10px 10px 0px rgba(0,0,0,0.4);
+        color: white;
     }
     .img-container {
         background-color: #dedede;
@@ -48,6 +49,7 @@ st.markdown("""
         padding: 15px;
         margin: 15px 0;
         border: 2px solid #1b7ba1;
+        font-weight: bold;
     }
     .evo-card {
         background-color: #444;
@@ -58,6 +60,7 @@ st.markdown("""
         color: white;
         font-weight: bold;
     }
+    h2, h3, p { color: white !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -66,7 +69,7 @@ st.markdown("<h1 class='pokedex-title'>TURIDEX</h1>", unsafe_allow_html=True)
 try:
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 except Exception:
-    st.error("Error: Configura tu GROQ_API_KEY en los Secrets.")
+    st.error("Error: Configura la API KEY en Secrets.")
 
 def encode_image(image_file):
     return base64.b64encode(image_file.getvalue()).decode('utf-8')
@@ -80,22 +83,29 @@ if archivo:
     st.markdown("</div>", unsafe_allow_html=True)
     
     if st.button("🔍 INICIAR ESCÁNER"):
-        with st.spinner("⏳ Accediendo a la red de Turidex..."):
+        with st.spinner("⏳ Sincronizando con satélites de Turidex..."):
             try:
                 base64_image = encode_image(archivo)
                 prompt = """Actúa como una Pokédex experta. Analiza la imagen y responde en ESPAÑOL.
-                Sé LÓGICO con los stats (Ej: Margarita picante 0). 
-                Formato estricto:
+                Stats LÓGICOS (Margarita picante 0). Formato:
                 NOMBRE: [Nombre]
                 TIPO: [Categoría]
                 DESC: [Descripción breve]
-                HISTORIA: [Dos párrafos]
+                HISTORIA: [Dos párrafos detallados]
                 STATS: [Sabor, Picante, Salud, Rareza - 4 números 0-100]
                 EVOS: [3 versiones alternativas]"""
 
-                # LISTA DE MODELOS POR SI UNO FALLA
-                modelos_a_probar = ["llama-3.2-11b-vision-preview", "llama-3.2-90b-vision-preview"]
+                # LISTA DE MODELOS ACTUALIZADA A NOMBRES DE PRODUCCIÓN 2026
+                # Si estos fallan, es que Groq tiene un problema global de servidores.
+                modelos_a_probar = [
+                    "llama-3.2-11b-vision-preview", 
+                    "llama-3.2-90b-vision-preview",
+                    "llama-3-vis-70b", # Modelo alternativo de respaldo
+                    "llava-v1.5-7b-4096-preview" # Último recurso
+                ]
+                
                 res = None
+                ultimo_error = ""
                 
                 for mod in modelos_a_probar:
                     try:
@@ -108,12 +118,15 @@ if archivo:
                             temperature=0.1
                         )
                         res = chat.choices[0].message.content
-                        break # Si funciona, salimos del bucle
-                    except Exception:
-                        continue # Si falla, probamos el siguiente
+                        break 
+                    except Exception as e:
+                        ultimo_error = str(e)
+                        continue 
 
                 if not res:
-                    st.error("Ningún modelo de visión está respondiendo. Groq está en mantenimiento.")
+                    st.error(f"❌ Error de Conexión: Ningún modelo disponible.")
+                    st.warning(f"Detalle técnico: {ultimo_error}")
+                    st.info("💡 Tip: Verifica si tu API de Groq tiene límites de uso o si el servicio está caído en console.groq.com")
                     st.stop()
 
                 # --- EXTRACCIÓN ROBUSTA ---
@@ -123,7 +136,7 @@ if archivo:
                         for k in ["NOMBRE", "TIPO", "DESC", "HISTORIA", "STATS", "EVOS"]:
                             if k + ":" in parte: parte = parte.split(k + ":")[0]
                         return parte.strip()
-                    except: return "---"
+                    except: return "No detectado"
 
                 nombre = extraer("NOMBRE", res)
                 tipo = extraer("TIPO", res)
@@ -132,14 +145,13 @@ if archivo:
                 stats_raw = extraer("STATS", res)
                 evos_raw = extraer("EVOS", res)
 
-                # Stats y Evos
                 try: nums = [int(n.strip()) for n in stats_raw.replace('[','').replace(']','').split(",")]
                 except: nums = [50, 0, 50, 10]
-                evos = evos_raw.split(",") if "," in evos_raw else ["Ver. A", "Ver. B", "Ver. C"]
+                evos = evos_raw.split(",") if "," in evos_raw else ["Normal", "Especial", "Premium"]
 
                 # --- DISPLAY ---
                 st.markdown(f"## 📋 {nombre}")
-                st.markdown(f"<div class='data-card'><b>Tipo:</b> {tipo}<br><i>{desc}</i></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='data-card'>TIPO: {tipo}<br><i>{desc}</i></div>", unsafe_allow_html=True)
                 st.write(historia)
 
                 st.subheader("📊 Puntos Base")
@@ -165,6 +177,6 @@ if archivo:
                 st.audio(fp)
 
             except Exception as e:
-                st.error(f"Error crítico: {e}")
+                st.error(f"Error crítico en el sistema: {e}")
 
 st.markdown("</div>", unsafe_allow_html=True)
