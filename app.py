@@ -46,7 +46,10 @@ if archivo_subido is not None:
             st.success("¡Logrado!")
             st.write(texto_full)
             
-            link_maps = f"https://www.google.com/maps/search/{nombre_solo.replace(' ', '+')}+cerca+de+mi"
+            busqueda_optimizada = f"donde+comer+{nombre_solo}+o+restaurantes+de+{nombre_solo}"
+link_maps = f"https://www.google.com/maps/search/{busqueda_optimizada}+cerca+de+mi"
+
+st.link_button(f"📍 BUSCAR {nombre_solo.upper()} CERCA", link_maps)
             st.link_button(f"📍 BUSCAR {nombre_solo.upper()} CERCA", link_maps)
             
             # 3. Audio limpio (sin asteriscos)
