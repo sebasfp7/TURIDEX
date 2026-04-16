@@ -54,7 +54,7 @@ def resize_image(image_file):
 
 def generate_image(name):
     try:
-        url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(f'{name}, realistic, high quality, clean background, national geographic style')}"
+        url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(f'{name}, realistic, high quality, clean background')}"
         resp = requests.get(url + "?width=700&height=500&nologo=true", timeout=10)
         if resp.status_code == 200:
             return Image.open(BytesIO(resp.content))
@@ -70,18 +70,18 @@ def get_prompt(is_image=True, item_name=None, category=None):
   "nombre": "Nombre claro",
   "categoria": "ANIMAL",
   "desc": "Descripción corta máximo 15 palabras",
-  "historia": "Dos párrafos cortos y reales",
-  "stats": [85, 80, 75, 65],
+  "historia": "Dos párrafos cortos con información real",
+  "stats": [85, 80, 75, 60],
   "evos": ["Tigre", "Leopardo", "Jaguar"]
 }
 
-Si es ANIMAL usa stats de Fuerza, Agilidad, Peligro, Rareza. Las evos deben ser solo nombres cortos y del mismo tipo."""
+Si es ANIMAL usa stats de Fuerza, Agilidad, Peligro, Rareza. Las evos deben ser solo nombres cortos."""
     else:
         return f"""Responde **solo** con un JSON válido sobre "{item_name}":
 
 {{
   "nombre": "{item_name}",
-  "categoria": "{category}",
+  "categoria": "{category or 'ANIMAL'}",
   "desc": "descripción corta",
   "historia": "dos párrafos cortos",
   "stats": [80, 85, 70, 60],
@@ -96,6 +96,12 @@ def parse_json(text):
     except:
         pass
     return None
+
+def get_labels(category):
+    cat = str(category).upper()
+    if "ANIMAL" in cat: return ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
+    elif any(x in cat for x in ["LUGAR", "ARTE", "PERSONA"]): return ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
+    else: return ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
 
 with st.container():
     st.markdown("<div class='frame'>", unsafe_allow_html=True)
@@ -164,7 +170,7 @@ with st.container():
                 if img:
                     st.image(img, use_container_width=True, caption=data.get("nombre"))
                 else:
-                    st.image(archivo, use_container_width=True)  # fallback a imagen original
+                    st.image(archivo, use_container_width=True)
 
             with col_info:
                 st.markdown(f"## {data.get('nombre', 'León')}")
@@ -192,7 +198,6 @@ with st.container():
                         st.session_state.current_data = None
                         st.rerun()
 
-                # Audio
                 try:
                     text_audio = f"{data.get('nombre')}. {data.get('desc', '')}. {data.get('historia', '')[:150]}"
                     tts = gTTS(text_audio, lang='es')
