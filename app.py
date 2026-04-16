@@ -63,7 +63,7 @@ st.markdown("""
 
 st.markdown("<h1 class='pokedex-title'>TURIDEX</h1>", unsafe_allow_html=True)
 
-# Cliente de Groq seguro
+# Cliente de Groq
 try:
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 except Exception:
@@ -85,7 +85,6 @@ if archivo:
             try:
                 base64_image = encode_image(archivo)
                 
-                # Prompt con instrucciones de pensamiento lento y lógico
                 prompt = """Actúa como una Pokédex experta. Analiza la imagen y responde en ESPAÑOL.
                 Tómate tu tiempo para ser LÓGICO: si es una pizza margarita, el picante es 0. 
                 Sigue este formato estrictamente:
@@ -96,22 +95,23 @@ if archivo:
                 STATS: [Sabor, Picante, Salud, Rareza - 4 números del 0 al 100 separados por comas]
                 EVOS: [3 versiones alternativas separadas por comas]"""
 
+                # CAMBIO AQUÍ: Probamos con el modelo de 11b que suele ser más estable en transiciones
+                # Si este también falla, el panel de Groq te dirá cuál es el nombre exacto hoy.
                 chat = client.chat.completions.create(
                     messages=[{"role": "user", "content": [
                         {"type": "text", "text": prompt},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                     ]}],
-                    model="llama-3.2-90b-vision-preview",
-                    temperature=0.1 # Muy bajo para máxima lógica
+                    model="llama-3.2-11b-vision-preview", 
+                    temperature=0.1
                 )
                 
                 res = chat.choices[0].message.content
 
-                # --- EXTRACCIÓN ROBUSTA (Evita el error de conexión) ---
+                # Función de extracción robusta
                 def extraer(clave, texto):
                     try:
                         parte = texto.split(clave + ":")[1]
-                        # Buscar la siguiente clave para cortar
                         for k in ["NOMBRE", "TIPO", "DESC", "HISTORIA", "STATS", "EVOS"]:
                             if k + ":" in parte:
                                 parte = parte.split(k + ":")[0]
@@ -135,10 +135,8 @@ if archivo:
                 # Procesar Evoluciones
                 evos = evos_raw.split(",") if "," in evos_raw else ["Ver. A", "Ver. B", "Ver. C"]
 
-                # --- MOSTRAR RESULTADOS INMEDIATAMENTE ---
                 st.markdown(f"## 📋 {nombre}")
                 st.markdown(f"<div class='data-card'><b>Tipo:</b> {tipo}<br><i>{desc}</i></div>", unsafe_allow_html=True)
-                
                 st.write(historia)
 
                 st.subheader("📊 Puntos Base (Estadísticas Lógicas)")
@@ -162,7 +160,6 @@ if archivo:
                     with col:
                         st.markdown(f"<div class='evo-card'>{evos[i].strip()}</div>", unsafe_allow_html=True)
 
-                # Audio automático
                 audio_text = f"{nombre}. {tipo}. {desc}. {historia}"
                 tts = gTTS(text=re.sub(r'[*#_]', '', audio_text), lang='es')
                 fp = io.BytesIO()
@@ -170,7 +167,8 @@ if archivo:
                 st.audio(fp)
 
             except Exception as e:
-                st.error(f"Error técnico: {e}")
-                st.info("Intenta subir la imagen de nuevo o revisa si Groq tiene saldo en su tier gratuito.")
+                # Si vuelve a fallar el nombre del modelo, aquí te dará la pista
+                st.error(f"Error de modelo: {e}")
+                st.info("Nota: Groq está cambiando sus modelos. Si sale error 400, necesitamos el nuevo nombre de la consola de Groq.")
 
 st.markdown("</div>", unsafe_allow_html=True)
