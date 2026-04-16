@@ -18,7 +18,6 @@ st.markdown("""
         background-position: center;
         background-attachment: fixed;
     }
-    /* Estilo de texto 'Pokédex Inmersiva' */
     .legible-text {
         color: white !important;
         text-shadow: 2px 2px 4px #000000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
@@ -67,7 +66,6 @@ st.markdown("""
         color: white;
         font-weight: bold;
     }
-    /* Asegurar que h2 y h3 sean legibles */
     .stMarkdown h2, .stMarkdown h3 {
         color: white !important;
         text-shadow: 1px 1px 3px #000;
@@ -95,20 +93,25 @@ if archivo:
     st.markdown("</div>", unsafe_allow_html=True)
     
     if st.button("🔍 INICIAR ESCÁNER"):
-        with st.spinner("⏳ Analizando con Llama 4 Scout (Prompt Sincero)..."):
+        with st.spinner("⏳ Analizando con Escáner de Comida Local Actualizado..."):
             try:
                 base64_image = encode_image(archivo)
                 
-                # --- PROMPT REFORZADO: El ajuste de tuercas ---
-                prompt = """Actúa como una Pokédex. Analiza la imagen.
+                # --- PROMPT REFORZADO V3: Firmware Visual ---
+                prompt = """Actúa como una Pokédex experta en gastronomía local de América Latina. 
+                Analiza la imagen. Si detectas comida rápida, prioriza la identificación de platos como salchipapa, arepa recheada, empanada o ceviche.
+                
+                CRÍTICO PARA LA IDENTIFICACIÓN VISUAL:
+                - Una salchipapa es visualmente: PAPAS FRITAS (no totopos o chips de maíz) y SALCHICHAS troceadas, mezcladas o encima, a menudo con salsas. No confundir con nachos. Presta atención a la forma de la papa.
+                
                 STATS CRÍTICOS: Sé realista e inflexible con la lógica nutricional.
                 - Si detectas fritura masiva, grasa excesiva o comida chatarra (como salchipapas, pizzas, burgers), el Stat de SALUD debe ser obligatoriamente MENOR a 15.
                 - Si es ensalada o fruta, Salud > 90.
                 - Si es un lugar, Sabor=0 y Salud=0, evalúa Rareza y Antigüedad.
                 
                 Responde en ESPAÑOL con este formato:
-                NOMBRE: [Nombre]
-                TIPO: [Categoría]
+                NOMBRE: [Nombre exacto, ej. Salchipapa]
+                TIPO: [Categoría, ej. Comida > Rápida > Latina]
                 DESC: [Descripción breve de una línea]
                 HISTORIA: [Dos párrafos detallados sobre origen y cultura]
                 STATS: [Sabor, Picante, Salud, Rareza - Dame 4 números de 0 a 100 separados por comas]
@@ -167,7 +170,7 @@ if archivo:
                 
                 st.markdown(f"<p class='legible-text'>{historia}</p>", unsafe_allow_html=True)
 
-                st.markdown("<h3 class='legible-text'>📊 Puntos Base (Análisis Sincero)</h3>", unsafe_allow_html=True)
+                st.markdown("<h3 class='legible-text'>📊 Puntos Base (Llama 4 Vision v3)</h3>", unsafe_allow_html=True)
                 c1, c2 = st.columns(2)
                 
                 # Etiquetas dinámicas según el tipo
@@ -177,14 +180,12 @@ if archivo:
                     labels = ["🏛️ Edad", "🧗 Altura", "🌤️ Clima", "💎 Rareza"]
 
                 with c1:
-                    # El color de la barra cambiará dinámicamente según el valor
                     st.write(f"**{labels[0]}: {nums[0]}%**")
                     st.progress(nums[0]/100)
                     st.write(f"**{labels[1]}: {nums[1]}%**")
                     st.progress(nums[1]/100)
                 with c2:
                     st.write(f"**{labels[2]}: {nums[2]}%**")
-                    # La barra de salud ahora debe ser baja para salchipapas
                     st.progress(nums[2]/100)
                     st.write(f"**{labels[3]}: {nums[3]}%**")
                     st.progress(nums[3]/100)
