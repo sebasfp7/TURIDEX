@@ -13,9 +13,6 @@ if 'current_item' not in st.session_state: st.session_state.current_item = None
 if 'current_category' not in st.session_state: st.session_state.current_category = None
 if 'log' not in st.session_state: st.session_state.log = []
 
-def add_log(msg):
-    st.session_state.log.append(msg)
-
 st.markdown("""
 <style>
     .stApp {background-image: url('https://vignette.wikia.nocookie.net/es.pokemon/images/c/c1/Mapa_de_Kanto_GSC.png/revision/latest?cb=20191215132219');
@@ -37,6 +34,9 @@ st.markdown("<h1 class='title'>⚡ TURIDEX ⚡</h1>", unsafe_allow_html=True)
 
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
+def add_log(msg):
+    st.session_state.log.append(msg)
+
 def resize_image(image_file):
     img = Image.open(image_file)
     if img.mode in ("RGBA", "P"):
@@ -49,18 +49,20 @@ def resize_image(image_file):
 
 def get_prompt(is_image=True, item_name=None, category=None):
     if is_image:
-        return """Analiza la imagen y responde **SOLO** con un JSON válido. Nada más.
+        return """Analiza la imagen y responde **SOLO** con un JSON válido. No añadas texto fuera del JSON.
 
 {
   "nombre": "Nombre claro del elemento",
   "categoria": "ANIMAL",
-  "desc": "Descripción corta en máximo 15 palabras",
+  "desc": "Descripción corta máximo 15 palabras",
   "historia": "Dos párrafos cortos con información real",
   "stats": [85, 75, 70, 60],
   "evos": ["NombreCorto1", "NombreCorto2", "NombreCorto3"]
-}"""
+}
+
+Categorías permitidas: COMIDA, ANIMAL, LUGAR, ARTE."""
     else:
-        return f"""Responde **solo** con un JSON válido sobre "{item_name}" (categoría: {category}):
+        return f"""Responde **solo** con un JSON válido sobre "{item_name}":
 
 {{
   "nombre": "{item_name}",
@@ -78,8 +80,8 @@ def parse_json(text):
             return json.loads(match.group(1))
     except:
         pass
-    return {"nombre": "Error", "categoria": "ANIMAL", "desc": "Error al procesar", 
-            "historia": "La IA no devolvió un JSON válido.", "stats": [60,60,60,60], "evos": ["Error1","Error2","Error3"]}
+    return {"nombre": "Error de JSON", "categoria": "ANIMAL", "desc": "Error al procesar respuesta", 
+            "historia": "La IA no devolvió un formato JSON válido.", "stats": [60,60,60,60], "evos": ["Error1","Error2","Error3"]}
 
 def get_labels(category):
     cat = str(category).upper()
@@ -98,8 +100,8 @@ with st.container():
     st.markdown(f"<div class='header'>📍 {st.session_state.current_item or 'Esperando imagen...'}</div>", unsafe_allow_html=True)
 
     if st.session_state.log:
-        st.markdown("**Logs:**")
-        for log in st.session_state.log[-8:]:
+        st.markdown("**Logs en tiempo real:**")
+        for log in st.session_state.log[-10:]:
             st.markdown(f"<div class='log-box'>{log}</div>", unsafe_allow_html=True)
 
     col1, col2 = st.columns([1, 2])
@@ -109,7 +111,7 @@ with st.container():
         if archivo:
             st.image(archivo, use_container_width=True)
             if st.button("🔍 ESCANEAR OBJETIVO", type="primary", use_container_width=True):
-                st.session_state.log = ["1. Imagen cargada correctamente"]
+                st.session_state.log = ["1. Imagen cargada"]
                 st.session_state.current_item = "Procesando imagen..."
                 st.rerun()
 
@@ -117,11 +119,11 @@ with st.container():
         if st.session_state.current_item == "Procesando imagen...":
             try:
                 add_log = lambda x: st.session_state.log.append(x)
-                add_log("2. Redimensionando imagen...")
+                add_log("2. Optimizando imagen (800px, 85% calidad)...")
                 bytes_opt = resize_image(archivo)
-                add_log("3. Codificando imagen...")
+                add_log("3. Codificando a base64...")
                 b64 = base64.b64encode(bytes_opt).decode()
-                add_log("4. Enviando a modelo de visión (llama-3.2-11b-vision)...")
+                add_log("4. Enviando a modelo de visión (llama-3.2-90b-vision-preview)...")
                 
                 prompt = get_prompt(is_image=True)
                 response = client.chat.completions.create(
@@ -129,15 +131,16 @@ with st.container():
                         {"type": "text", "text": prompt},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
                     ]}],
-                    model="llama-3.2-11b-vision-preview",   # ← Modelo correcto
+                    model="llama-3.2-90b-vision-preview",   # ← Modelo actual recomendado
                     temperature=0.1,
-                    max_tokens=800
+                    max_tokens=1000
                 )
-                add_log("5. Respuesta recibida. Procesando JSON...")
+                add_log("5. Respuesta recibida del modelo")
+                add_log("6. Procesando JSON...")
                 
                 data = parse_json(response.choices[0].message.content)
                 
-                st.session_state.current_item = data.get("nombre", "Animal sin nombre")
+                st.session_state.current_item = data.get("nombre", "Elemento sin nombre")
                 st.session_state.current_category = data.get("categoria", "ANIMAL")
                 add_log(f"✅ COMPLETADO: {st.session_state.current_item}")
                 st.rerun()
@@ -146,12 +149,10 @@ with st.container():
                 st.session_state.log.append(f"❌ ERROR: {str(e)}")
                 st.error(f"Error: {str(e)}")
 
-    # Mostrar resultado final
+    # Mostrar resultado
     if st.session_state.current_item and st.session_state.current_item != "Procesando imagen...":
-        data = {"nombre": st.session_state.current_item, "categoria": st.session_state.current_category}
         with col2:
-            st.success(f"**{data['nombre']}**")
-            st.markdown(f"**Categoría:** {data['categoria']}")
-            st.info("Las variantes y stats completos se mostrarán en la siguiente versión (una vez estabilizado el flujo).")
+            st.success(f"**{st.session_state.current_item}**")
+            st.info("El análisis se completó. En la siguiente versión añadiremos las stats y variantes completas.")
 
     st.markdown("</div>", unsafe_allow_html=True)
