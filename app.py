@@ -10,7 +10,6 @@ from io import BytesIO
 
 st.set_page_config(page_title="TURIDEX", layout="wide")
 
-# ====================== SESSION STATE ======================
 if 'current_item' not in st.session_state: st.session_state.current_item = None
 if 'current_category' not in st.session_state: st.session_state.current_category = None
 if 'historial' not in st.session_state: st.session_state.historial = []
@@ -19,19 +18,18 @@ st.markdown("""
 <style>
     .stApp {background-image: url('https://vignette.wikia.nocookie.net/es.pokemon/images/c/c1/Mapa_de_Kanto_GSC.png/revision/latest?cb=20191215132219');
             background-size: cover; background-attachment: fixed;}
-    .frame {background: rgba(255,255,255,0.9); backdrop-filter: blur(12px);
+    .frame {background: rgba(255,255,255,0.92); backdrop-filter: blur(12px);
             border: 4px solid #DC0A2D; border-radius: 20px; padding: 25px;}
     .title {color: #FFDE00 !important; font-family: 'Courier New', monospace; font-size: 3.8em;
             text-shadow: 0 0 20px #FFDE00, 0 0 35px #FF0000;}
-    .current-header {background: linear-gradient(90deg, #000000, #1a1a1a); color: #00FF41; 
-                     padding: 15px; border-radius: 10px; text-align: center; font-size: 1.5em; 
-                     font-weight: bold; margin-bottom: 15px; border: 2px solid #00FF41;}
+    .current-header {background: #000000; color: #00FF41; padding: 15px; border-radius: 10px;
+                     text-align: center; font-size: 1.6em; font-weight: bold; margin-bottom: 15px;}
     .data-card, .historia-box {background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
-                               padding: 18px; border-radius: 10px; margin: 12px 0; box-shadow: 0 4px 15px rgba(0,0,0,0.25);}
+                               padding: 18px; border-radius: 10px; margin: 12px 0;}
     .variant-btn {background: linear-gradient(135deg, #FFCC00, #FFEB3B) !important; color: black !important;
                   font-weight: bold !important; border: 3px solid black !important; border-radius: 15px !important;
-                  padding: 15px !important; margin: 8px 0 !important;}
-    .variant-btn:hover {transform: translateY(-5px); box-shadow: 0 10px 20px rgba(220,10,45,0.6) !important;}
+                  padding: 14px !important; margin: 6px 0 !important;}
+    .variant-btn:hover {transform: translateY(-4px);}
 </style>
 """, unsafe_allow_html=True)
 
@@ -40,79 +38,75 @@ st.markdown("<h1 class='title' style='text-align:center'>⚡ TURIDEX ⚡</h1>", 
 try:
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 except:
-    st.error("Configura tu GROQ_API_KEY")
+    st.error("Falta GROQ_API_KEY")
 
 def clean_text(text):
-    return re.sub(r'[*#_\[\]]', '', re.sub(r'\n{3,}', '\n\n', text)).strip()
+    text = re.sub(r'[*#_\[\]]|Variante\d+:|Variante :', '', text)
+    return re.sub(r'\n{3,}', '\n\n', text).strip()
 
 def extract(tag, text):
     match = re.search(rf"{tag}:\s*(.*?)(?=\n[A-Z]+:|$)", text, re.S | re.I)
     return clean_text(match.group(1)) if match else ""
 
-def generate_image(name, category):
+def clean_variants(evos_text):
+    """Limpieza agresiva de variantes"""
+    items = re.split(r',|•|\n', evos_text)
+    clean = []
+    for item in items:
+        item = re.sub(r'^.*?:', '', item).strip()  # Quita "Variante1:"
+        item = re.sub(r'\..*', '', item).strip()   # Quita texto largo
+        if item and len(item) > 2 and not any(bad in item.lower() for bad in ['la gioconda', 'ha sido', 'es considerada']):
+            clean.append(item[:25])  # Limitar longitud
+    return clean[:3]
+
+def generate_image(name):
     try:
-        style = {
-            "ANIMAL": "realistic wildlife photography, national geographic, sharp detail, dramatic lighting",
-            "COMIDA": "professional appetizing food photography, studio lighting, high detail",
-            "LUGAR": "epic cinematic landscape photography, national geographic style, 4k"
-        }.get(category, "high quality realistic photography")
-        
-        url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(f'{name}, {style}, no text, clean background')}"
-        response = requests.get(url + "?width=800&height=600&nologo=true&enhance=true", timeout=12)
-        if response.status_code == 200:
-            return PIL.Image.open(BytesIO(response.content))
-        return None
+        prompt = f"{name}, high quality, clean background, encyclopedia style, no text, professional"
+        url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(prompt)}?width=800&height=600&nologo=true&seed=42"
+        resp = requests.get(url, timeout=15)
+        if resp.status_code == 200:
+            return PIL.Image.open(BytesIO(resp.content))
     except:
-        return None
+        pass
+    return None
 
 def get_prompt(item_name=None, inherited_category=None):
-    if item_name is None:  # Modo imagen
-        return """Analiza la imagen y responde EXACTAMENTE con este formato:
+    cat = inherited_category or "COMIDA"
+    return f"""Eres TURIDEX. Responde **SIEMPRE** con el formato exacto. No añadas texto extra, explicaciones ni "Variante1:".
 
-NOMBRE: 
-CATEGORIA: [COMIDA, ANIMAL o LUGAR]
-DESC: 
-HISTORIA: 
-STATS: [n1,n2,n3,n4]
-EVOS: [var1,var2,var3]"""
-    
-    else:  # Modo variante (texto)
-        return f"""Eres TURIDEX. Analiza "{item_name}".
+ELEMENTO: {item_name}
+CATEGORÍA CONFIRMADA: {cat}
 
-**REGLA ABSOLUTA DE CATEGORÍA:**
-Categoría confirmada: {inherited_category}
-Solo usa los stats correspondientes a esa categoría. No mezcles nunca.
+REGLAS ESTRICTAS:
+- Si la categoría es ANIMAL → Stats: Fuerza, Agilidad, Peligro, Rareza
+- Si la categoría es COMIDA → Stats: Sabor, Picante, Salud, Rareza
+- Si la categoría es LUGAR o ARTE → Stats: Historia, Belleza, Cultura, Rareza
 
-**STATS OBLIGATORIOS POR CATEGORÍA:**
+**EVOS DEBEN SER SOLO 3 NOMBRES CORTOS** (máximo 3 palabras cada uno). Ejemplos correctos:
+- Para La Gioconda → Leonardo da Vinci, Venus de Milo, El Grito
+- Para León → Tigre, Jaguar, Pantera
 
-→ SI ES ANIMAL: Usa **Fuerza, Agilidad, Peligro, Rareza**
-→ SI ES COMIDA: Usa **Sabor, Picante, Salud, Rareza**
-→ SI ES LUGAR: Usa **Historia, Belleza, Cultura, Rareza**
-
-**EJEMPLOS REALISTAS:**
-- León / Leopardo / Tigre → Fuerza:80-90, Agilidad:85-95, Peligro:70-85, Rareza:60-80
-- Comida frita (salchipapa) → Sabor:75-90, Picante:20-50, Salud:10-25, Rareza:30-50
-- Lugares famosos → Historia y Belleza casi siempre >85
-
-Responde **exactamente** con este formato:
+FORMATO OBLIGATORIO (copia exactamente):
 
 NOMBRE: {item_name}
-CATEGORIA: {inherited_category}
-DESC: [máximo 15 palabras]
-HISTORIA: [Dos párrafos bien escritos]
-STATS: [n1, n2, n3, n4]
-EVOS: [Variante1, Variante2, Variante3]"""
+CATEGORIA: {cat}
+DESC: [máximo 12 palabras]
+HISTORIA: [Dos párrafos cortos]
+STATS: [45, 65, 80, 75]
+EVOS: [Nombre1, Nombre2, Nombre3]
+
+Analiza ahora."""
 
 def get_labels(category):
-    category = category.upper()
+    category = str(category).upper()
     if "ANIMAL" in category:
         return ["🐾 Fuerza", "⚡ Agilidad", "⚠️ Peligro", "💎 Rareza"]
-    elif "LUGAR" in category:
+    elif any(x in category for x in ["LUGAR", "ARTE", "PERSONA"]):
         return ["🏛️ Historia", "📸 Belleza", "🌍 Cultura", "💎 Rareza"]
-    else:  # COMIDA por defecto
+    else:
         return ["😋 Sabor", "🌶️ Picante", "🥗 Salud", "💎 Rareza"]
 
-# ====================== INTERFAZ ======================
+# ====================== FLUJO ======================
 with st.container():
     st.markdown("<div class='frame'>", unsafe_allow_html=True)
 
@@ -129,14 +123,14 @@ with st.container():
         item = st.session_state.current_item
         cat = st.session_state.current_category
 
-        with st.spinner(f"Generando ficha de {item}..."):
+        with st.spinner(f"Procesando {item}..."):
             try:
                 prompt = get_prompt(item, cat)
                 response = client.chat.completions.create(
                     messages=[{"role": "user", "content": prompt}],
                     model="meta-llama/llama-4-scout-17b-16e-instruct",
-                    temperature=0.07,
-                    max_tokens=1400
+                    temperature=0.05,
+                    max_tokens=1000
                 )
                 res = response.choices[0].message.content
 
@@ -147,25 +141,23 @@ with st.container():
                 stats_raw = extract("STATS", res)
                 evos_raw = extract("EVOS", res)
 
-                nums = [min(100, max(5, int(n))) for n in re.findall(r'\d+', stats_raw)][:4]
-                while len(nums) < 4: nums.append(50)
+                nums = [min(100, max(10, int(n))) for n in re.findall(r'\d+', stats_raw)][:4]
+                while len(nums) < 4: nums.append(60)
 
-                variantes = [v.strip() for v in evos_raw.split(",") if len(v.strip()) > 2][:3]
+                variantes = clean_variants(evos_raw)
 
                 if nombre not in st.session_state.historial:
                     st.session_state.historial.append(nombre)
                 st.session_state.current_category = categoria
 
-                # ====================== RENDER ======================
                 with col_img:
-                    st.markdown(f"**Visualización de {nombre}**")
-                    with st.spinner("Generando imagen..."):
-                        img = generate_image(nombre, categoria)
-                        if img:
-                            st.image(img, use_container_width=True)
-                        else:
-                            st.error("⚠️ No se pudo generar la imagen (API temporalmente inestable)")
-                            st.info("🔄 Intenta cambiar a otra variante")
+                    st.write(f"**Visualización de {nombre}**")
+                    img = generate_image(nombre)
+                    if img:
+                        st.image(img, use_container_width=True)
+                    else:
+                        st.error("⚠️ No se pudo generar la imagen")
+                        st.info("La API de imágenes está inestable. Prueba con otra variante.")
 
                 with col_info:
                     st.markdown(f"## {nombre}")
@@ -175,32 +167,28 @@ with st.container():
                     st.markdown("### 📖 Historia")
                     st.markdown(f"<div class='historia-box'>{historia}</div>", unsafe_allow_html=True)
                     
-                    labels = get_labels(categoria)   # ← FUERZA LAS ETIQUETAS CORRECTAS
+                    labels = get_labels(categoria)
                     
                     st.markdown("### 📊 Puntos Base")
                     c1, c2 = st.columns(2)
                     with c1:
-                        st.write(f"{labels[0]}: **{nums[0]}%**"); st.progress(nums[0]/100)
-                        st.write(f"{labels[1]}: **{nums[1]}%**"); st.progress(nums[1]/100)
+                        for i in range(2):
+                            st.write(f"{labels[i]}: **{nums[i]}%**")
+                            st.progress(nums[i]/100)
                     with c2:
-                        st.write(f"{labels[2]}: **{nums[2]}%**"); st.progress(nums[2]/100)
-                        st.write(f"{labels[3]}: **{nums[3]}%**"); st.progress(nums[3]/100)
+                        for i in range(2,4):
+                            st.write(f"{labels[i]}: **{nums[i]}%**")
+                            st.progress(nums[i]/100)
                     
                     st.markdown("### 🔄 Variantes")
                     for var in variantes:
-                        if st.button(var, key=f"var_{var}", use_container_width=True):
+                        if st.button(var, key=f"btn_{var}", use_container_width=True):
                             st.session_state.current_item = var
                             st.session_state.current_category = categoria
                             st.rerun()
 
-                    try:
-                        tts = gTTS(f"{nombre}. {desc}. {historia[:160]}", lang='es')
-                        fp = io.BytesIO(); tts.write_to_fp(fp)
-                        st.audio(fp)
-                    except: pass
-
             except Exception as e:
-                st.error(f"Error: {str(e)}")
+                st.error(f"Error: {e}")
 
     else:
         with col_img:
@@ -208,27 +196,7 @@ with st.container():
             if archivo:
                 st.image(archivo, use_container_width=True)
                 if st.button("🔍 ESCANEAR OBJETIVO", type="primary", use_container_width=True):
-                    with st.spinner("Analizando imagen..."):
-                        try:
-                            b64 = base64.b64encode(archivo.getvalue()).decode()
-                            prompt = get_prompt()
-                            resp = client.chat.completions.create(
-                                messages=[{"role":"user","content":[
-                                    {"type":"text","text":prompt},
-                                    {"type":"image_url","image_url":{"url":f"data:image/jpeg;base64,{b64}"}}
-                                ]}],
-                                model="meta-llama/llama-4-scout-17b-16e-instruct",
-                                temperature=0.1
-                            )
-                            data = resp.choices[0].message.content
-                            nombre = extract("NOMBRE", data)
-                            categoria = extract("CATEGORIA", data).upper()
-
-                            st.session_state.current_item = nombre or "Elemento desconocido"
-                            st.session_state.current_category = categoria or "ANIMAL"
-                            st.session_state.historial = [st.session_state.current_item]
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error al analizar: {e}")
+                    st.session_state.current_item = "Procesando imagen..."
+                    st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
