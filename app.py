@@ -49,20 +49,20 @@ def resize_image(image_file):
 
 def get_prompt(is_image=True, item_name=None, category=None):
     if is_image:
-        return """Analiza la imagen y responde **SOLO** con un JSON válido. No añadas texto fuera del JSON.
+        return """Analiza la imagen y responde **ÚNICAMENTE** con un JSON válido. No escribas nada más.
 
 {
-  "nombre": "Nombre claro del elemento",
+  "nombre": "Nombre claro",
   "categoria": "ANIMAL",
   "desc": "Descripción corta máximo 15 palabras",
-  "historia": "Dos párrafos cortos con información real",
+  "historia": "Dos párrafos cortos",
   "stats": [85, 75, 70, 60],
-  "evos": ["NombreCorto1", "NombreCorto2", "NombreCorto3"]
+  "evos": ["Nombre1", "Nombre2", "Nombre3"]
 }
 
-Categorías permitidas: COMIDA, ANIMAL, LUGAR, ARTE."""
+Categorías permitidas: COMIDA, ANIMAL, LUGAR, ARTE"""
     else:
-        return f"""Responde **solo** con un JSON válido sobre "{item_name}":
+        return f"""Responde **solo** con un JSON válido:
 
 {{
   "nombre": "{item_name}",
@@ -80,8 +80,8 @@ def parse_json(text):
             return json.loads(match.group(1))
     except:
         pass
-    return {"nombre": "Error de JSON", "categoria": "ANIMAL", "desc": "Error al procesar respuesta", 
-            "historia": "La IA no devolvió un formato JSON válido.", "stats": [60,60,60,60], "evos": ["Error1","Error2","Error3"]}
+    return {"nombre": "Elemento", "categoria": "ANIMAL", "desc": "No se pudo analizar", 
+            "historia": "Error en el procesamiento de la respuesta.", "stats": [60,60,60,60], "evos": ["Var1","Var2","Var3"]}
 
 def get_labels(category):
     cat = str(category).upper()
@@ -100,7 +100,7 @@ with st.container():
     st.markdown(f"<div class='header'>📍 {st.session_state.current_item or 'Esperando imagen...'}</div>", unsafe_allow_html=True)
 
     if st.session_state.log:
-        st.markdown("**Logs en tiempo real:**")
+        st.markdown("**Logs:**")
         for log in st.session_state.log[-10:]:
             st.markdown(f"<div class='log-box'>{log}</div>", unsafe_allow_html=True)
 
@@ -111,7 +111,7 @@ with st.container():
         if archivo:
             st.image(archivo, use_container_width=True)
             if st.button("🔍 ESCANEAR OBJETIVO", type="primary", use_container_width=True):
-                st.session_state.log = ["1. Imagen cargada"]
+                st.session_state.log = ["1. Imagen cargada correctamente"]
                 st.session_state.current_item = "Procesando imagen..."
                 st.rerun()
 
@@ -119,11 +119,11 @@ with st.container():
         if st.session_state.current_item == "Procesando imagen...":
             try:
                 add_log = lambda x: st.session_state.log.append(x)
-                add_log("2. Optimizando imagen (800px, 85% calidad)...")
+                add_log("2. Optimizando imagen (800px, calidad 85%)...")
                 bytes_opt = resize_image(archivo)
-                add_log("3. Codificando a base64...")
+                add_log("3. Codificando imagen...")
                 b64 = base64.b64encode(bytes_opt).decode()
-                add_log("4. Enviando a modelo de visión (llama-3.2-90b-vision-preview)...")
+                add_log("4. Enviando a Groq (llama-3.3-70b-versatile)...")
                 
                 prompt = get_prompt(is_image=True)
                 response = client.chat.completions.create(
@@ -131,18 +131,18 @@ with st.container():
                         {"type": "text", "text": prompt},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
                     ]}],
-                    model="llama-3.2-90b-vision-preview",   # ← Modelo actual recomendado
+                    model="llama-3.3-70b-versatile",   # ← Modelo actual estable
                     temperature=0.1,
                     max_tokens=1000
                 )
-                add_log("5. Respuesta recibida del modelo")
+                add_log("5. Respuesta recibida")
                 add_log("6. Procesando JSON...")
                 
                 data = parse_json(response.choices[0].message.content)
                 
                 st.session_state.current_item = data.get("nombre", "Elemento sin nombre")
                 st.session_state.current_category = data.get("categoria", "ANIMAL")
-                add_log(f"✅ COMPLETADO: {st.session_state.current_item}")
+                add_log(f"✅ COMPLETADO → {st.session_state.current_item}")
                 st.rerun()
                 
             except Exception as e:
@@ -153,6 +153,6 @@ with st.container():
     if st.session_state.current_item and st.session_state.current_item != "Procesando imagen...":
         with col2:
             st.success(f"**{st.session_state.current_item}**")
-            st.info("El análisis se completó. En la siguiente versión añadiremos las stats y variantes completas.")
+            st.info("Análisis completado. En próximas versiones añadiremos stats y variantes funcionales.")
 
     st.markdown("</div>", unsafe_allow_html=True)
