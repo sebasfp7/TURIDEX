@@ -1,41 +1,42 @@
-import pandas as pd
-import fitz  # PyMuPDF
-from docx import Document
-
-# Función para leer el archivo según su tipo
+# Función para leer el archivo de forma segura
 def extraer_contenido(archivo):
-    extension = archivo.name.split('.')[-1].lower()
-    
-    if extension in ['xlsx', 'xls']:
-        df = pd.read_excel(archivo)
-        return df.to_string() # Convierte el Excel en texto para la IA
+    try:
+        extension = archivo.name.split('.')[-1].lower()
         
-    elif extension == 'docx':
-        doc = Document(archivo)
-        return "\n".join([para.text for para in doc.paragraphs])
+        if extension in ['xlsx', 'xls']:
+            df = pd.read_excel(archivo)
+            return df.to_string()
+            
+        elif extension == 'docx':
+            doc = Document(archivo)
+            return "\n".join([para.text for para in doc.paragraphs])
+            
+        elif extension == 'pdf':
+            # Leemos el PDF desde la memoria
+            archivo_bytes = archivo.read()
+            doc = fitz.open(stream=archivo_bytes, filetype="pdf")
+            texto = ""
+            for pagina in doc:
+                texto += pagina.get_text()
+            return texto
         
-    elif extension == 'pdf':
-        doc = fitz.open(stream=archivo.read(), filetype="pdf")
-        texto = ""
-        for pagina in doc:
-            texto += pagina.get_text()
-        return texto
-    
-    else:
-        return None # Si es imagen, se lo pasamos a Scout
+        return None # Si es imagen, devuelve None para usar Scout
+    except Exception as e:
+        st.error(f"Error al leer el archivo: {e}")
+        return None
 
-# --- EN TU APP DE STREAMLIT ---
+# --- PARTE DE LA INTERFAZ ---
+st.title("📈 Finatrix Multi-Formato")
+
 archivo_subido = st.file_uploader("Sube Balance (Excel, PDF, Word o Imagen)", 
                                   type=["pdf", "xlsx", "docx", "png", "jpg"])
 
-if archivo_subido:
-    contenido = extraer_contenido(archivo_subido)
+if archivo_subido is not None:
+    # Usamos la función que creamos arriba
+    resultado = extraer_contenido(archivo_subido)
     
-    if contenido:
-        # SI ES TEXTO/EXCEL: Se lo pasamos directo a Llama-3.3-70b (Ahorras tiempo)
-        st.success("Documento leído como texto. Enviando a análisis...")
-        prompt_final = f"Analiza estos datos financieros: {contenido}"
+    if resultado:
+        st.success("✅ Texto extraído con éxito")
+        st.text_area("Previsualización del texto:", resultado[:500] + "...", height=150)
     else:
-        # SI ES IMAGEN: Usamos Scout (Visión)
-        st.warning("Es una imagen. Usando IA de Visión (Scout)...")
-        # Aquí va tu código de Scout...
+        st.warning("📸 No se detectó texto digital. Se requiere análisis de imagen (Scout).")
