@@ -7,22 +7,22 @@ import re
 import requests
 import time
 
-# --- CONFIGURACIÓN DE LA PÁGINA ---
+# --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Turidex", page_icon="📸")
-st.title("📸 TURIDEX: Identificador Inteligente")
-st.write("Visión Multi-IA para viajeros")
+st.title("📸 TURIDEX: Multi-IA Resiliente")
 
-# --- CONEXIÓN A LAS IAS (Usando Secrets) ---
-# Intentamos conectar con los modelos más recientes de 2026
+# --- CONFIGURACIÓN DE LLAVES ---
 try:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    # Usamos el alias estable que Google mantiene actualizado automáticamente
-    model_gemini = genai.GenerativeModel('models/gemini-2.5-flash')
+    # Cambiamos a 1.5-flash: es el que tiene menos errores 404 y es muy rápido
+    model_gemini = genai.GenerativeModel('gemini-1.5-flash')
     
-    API_URL_HF = "https://api-inference.huggingface.co/models/calendari/food-image-classification"
-    headers_hf = {"Authorization": f"Bearer {st.secrets['HUGGINGFACE_API_KEY']}"}
+    HF_TOKEN = st.secrets["HUGGINGFACE_API_KEY"]
+    # Usamos un modelo de comida más robusto de Hugging Face
+    API_URL_HF = "https://api-inference.huggingface.co/models/google/vit-base-patch16-224"
+    headers_hf = {"Authorization": f"Bearer {HF_TOKEN}"}
 except Exception as e:
-    st.error(f"Error de configuración: {e}")
+    st.error(f"Error en Secrets: {e}")
 
 def limpiar_texto(t):
     return re.sub(r'[*#_]', '', t)
@@ -31,67 +31,61 @@ def consulta_huggingface(img_pil):
     import io
     img_bytes = io.BytesIO()
     img_pil.save(img_bytes, format='JPEG')
-    img_bytes = img_bytes.getvalue()
-    response = requests.post(API_URL_HF, headers=headers_hf, data=img_bytes)
-    return response.json()
+    data = img_bytes.getvalue()
+    
+    # Intentos por si el modelo está dormido
+    for _ in range(3):
+        response = requests.post(API_URL_HF, headers=headers_hf, data=data)
+        resultado = response.json()
+        if isinstance(resultado, dict) and "estimated_time" in resultado:
+            time.sleep(2) # Esperar si el modelo está cargando
+            continue
+        return resultado
+    return None
 
-# --- INTERFAZ DE USUARIO ---
-archivo_subido = st.file_uploader("Sube una foto de comida o lugar...", type=["jpg", "png", "jpeg"])
+archivo_subido = st.file_uploader("Sube una foto...", type=["jpg", "png", "jpeg"])
 
 if archivo_subido is not None:
     imagen = PIL.Image.open(archivo_subido)
     st.image(imagen, use_container_width=True)
     
-    if st.button("🔍 ANALIZAR CON TURIDEX"):
-        with st.status("🚀 Analizando con Multi-Visión...", expanded=True) as status:
+    if st.button("🔍 ANALIZAR AHORA"):
+        with st.status("🚀 Procesando...", expanded=True) as status:
             texto_full = ""
-            nombre_solo = "comida"
-            metodo_ia = ""
+            nombre_solo = ""
 
-            # INTENTO 1: Google Gemini (Modelo 2.5 Flash)
+            # 1. INTENTO CON GOOGLE
             try:
-                status.write("📡 Consultando IA Principal (Google 2.5)...")
-                prompt = """Identifica el objeto. Responde estrictamente:
-                NOMBRE: [Nombre]
-                HISTORIA: [Historia breve y curiosa]
-                DATO: [Dato curioso]"""
+                status.write("📡 Intentando con IA Principal...")
+                prompt = "Identifica el objeto. NOMBRE: [Nombre], HISTORIA: [Breve], DATO: [Curiosidad]"
                 response = model_gemini.generate_content([prompt, imagen])
                 texto_full = response.text
-                metodo_ia = "Google Gemini 2.5"
-                
-                lineas = texto_full.split('\n')
-                for l in lineas:
-                    if "NOMBRE:" in l:
-                        nombre_solo = l.replace("NOMBRE:", "").strip()
+                status.write("✅ Google respondió con éxito.")
+            except Exception:
+                # 2. INTENTO CON RESPALDO (Hugging Face)
+                status.write("⚠️ Google saturado. Cambiando a IA de Respaldo...")
+                res_hf = consulta_huggingface(imagen)
+                if res_hf and isinstance(res_hf, list):
+                    nombre_solo = res_hf[0]['label'].split(',')[0]
+                    texto_full = f"NOMBRE: {nombre_solo}\nHISTORIA: Identificado por sistema de respaldo.\nDATO: ¡Parece delicioso!"
+                    status.write("✅ Respaldo activado con éxito.")
+                else:
+                    status.write("❌ Ambos sistemas fallaron.")
 
-            # INTENTO 2: Respaldo por saturación o error de modelo
-            except Exception as e:
-                status.write("⚠️ Google no disponible. Activando IA de Respaldo...")
-                try:
-                    resultado_hf = consulta_huggingface(imagen)
-                    if resultado_hf and isinstance(resultado_hf, list) and 'label' in resultado_hf[0]:
-                        nombre_solo = resultado_hf[0]['label']
-                        texto_full = f"NOMBRE: {nombre_solo.title()}\nHISTORIA: Identificado por sistema de respaldo.\nDATO: ¡Disfruta tu descubrimiento!"
-                        metodo_ia = "Hugging Face"
-                    else:
-                        texto_full = "No se pudo identificar con ninguna IA."
-                except:
-                    texto_full = "Error en todos los sistemas."
-
-            # --- RESULTADOS ---
-            if texto_full and "Error" not in texto_full:
-                status.update(label=f"✅ ¡Identificado por {metodo_ia}!", state="complete", expanded=False)
-                st.subheader(f"📍 {nombre_solo.title()}")
+            if texto_full:
+                status.update(label="¡Proceso finalizado!", state="complete", expanded=False)
                 st.write(texto_full)
                 
-                busqueda = f"donde+comer+{nombre_solo.replace(' ', '+')}+restaurantes"
-                link = f"https://www.google.com/maps/search/{busqueda}"
-                st.link_button(f"🍴 BUSCAR {nombre_solo.upper()} CERCA", link)
+                # Extraer nombre para el mapa
+                match = re.search(r"NOMBRE:\s*(.*)", texto_full)
+                nombre_mapa = match.group(1) if match else "Comida"
                 
-                texto_voz = limpiar_texto(texto_full)
-                tts = gTTS(text=texto_voz, lang='es')
+                link = f"https://www.google.com/maps/search/restaurantes+de+{nombre_mapa.replace(' ', '+')}"
+                st.link_button(f"📍 BUSCAR {nombre_mapa.upper()} CERCA", link)
+                
+                audio_limpio = limpiar_texto(texto_full)
+                tts = gTTS(text=audio_limpio, lang='es')
                 tts.save("voz.mp3")
                 st.audio("voz.mp3")
             else:
-                status.update(label="❌ Fallo total", state="error")
-                st.error("No se pudo procesar la imagen. Intenta de nuevo en unos segundos.")
+                st.error("Lo siento, los servidores gratuitos están llenos. Intenta en 10 segundos.")
