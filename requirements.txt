@@ -1,8 +1,8 @@
 streamlit
 pandas
-pdfplumber
-python-docx
 groq
 plotly
 openpyxl
 tabulate
+xhtml2pdf
+python-docx
