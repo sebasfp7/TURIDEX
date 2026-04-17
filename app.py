@@ -4,12 +4,11 @@ from groq import Groq
 import json
 import plotly.graph_objects as go
 import io
-from fpdf import FPDF
+from fpdf import FPDF  # Usamos FPDF que es más estable para Streamlit Cloud
 from docx import Document
-import markdown
 
 # ==================== 1. MOTOR FINANCIERO Y FORMATEO ====================
-st.set_page_config(page_title="Finatrix Elite v6.4", layout="wide")
+st.set_page_config(page_title="Finatrix Elite v6.5", layout="wide")
 
 def safe_format(valor, tipo='num'):
     if not isinstance(valor, (int, float)): return "N/D"
@@ -77,7 +76,7 @@ def obtener_analisis_ia(contexto, m, client):
     return json.loads(res.choices[0].message.content)
 
 # ==================== 3. INTERFAZ Y FLUJO ====================
-st.sidebar.header("🛡️ Finatrix Elite v6.4")
+st.sidebar.header("🛡️ Finatrix Elite v6.5")
 api_key = st.sidebar.text_input("Groq API Key", type="password")
 archivo = st.sidebar.file_uploader("Subir Archivo Excel", type=["xlsx"])
 
@@ -120,13 +119,18 @@ elif archivo:
                         if st.button("📄 Generar Informe PDF"):
                             pdf = FPDF()
                             pdf.add_page()
+                            pdf.set_font("Arial", 'B', 16)
+                            pdf.cell(0, 10, "Informe Finatrix Elite v6.5", 0, 1, 'C')
+                            pdf.ln(10)
                             pdf.set_font("Arial", size=11)
-                            pdf.multi_cell(0, 8, "Informe Finatrix Elite v6.4\n\n")
+                            
+                            # Limpieza de caracteres para PDF
                             for line in diag_md.split('\n'):
                                 line_clean = line.encode('latin-1', 'replace').decode('latin-1')
                                 pdf.multi_cell(0, 6, line_clean)
-                            pdf_io = io.BytesIO(pdf.output(dest='S').encode('latin-1'))
-                            st.download_button("⬇️ Descargar PDF", pdf_io.getvalue(), "informe_finatrix.pdf", "application/pdf")
+                            
+                            pdf_output = pdf.output(dest='S').encode('latin-1')
+                            st.download_button("⬇️ Descargar PDF", pdf_output, "informe_finatrix.pdf", "application/pdf")
 
                     with c_down2:
                         if st.button("📝 Descargar Word"):
@@ -146,6 +150,7 @@ elif archivo:
                     st.write("### Trazabilidad de Números")
                     st.json(m)
 
+                # --- SIMULADOR ---
                 st.write("---")
                 with st.expander("🎮 Simulador de Escenarios (CFO Dashboard)"):
                     sc1, sc2, sc3 = st.columns(3)
@@ -166,4 +171,3 @@ elif archivo:
 
         except Exception as e:
             st.error(f"Falla crítica: {e}")
-            st.exception(e)
