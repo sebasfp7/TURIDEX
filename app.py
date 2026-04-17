@@ -5,6 +5,7 @@ from groq import Groq
 import json
 import hashlib
 import plotly.graph_objects as go
+import re
 
 # Fallback para PDF: pdfplumber > fitz
 try:
@@ -35,8 +36,14 @@ def safe_div(n, d):
         return None
     return n / d
 
+def limpiar_texto_para_ia(texto):
+    """NUEVO: Quita caracteres que rompen el JSON de Groq"""
+    # Quita caracteres de control y emojis
+    texto = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\xff]', '', texto)
+    # Limita longitud para no exceder tokens
+    return texto[:24000]
+
 def validar_balance(d):
-    """Valida que Activo = Pasivo + Patrimonio. Tolerancia 1%"""
     activos, pasivos, patrimonio = d.get('activos_totales'), d.get('pasivos_totales'), d.get('patrimonio')
     if None in [activos, pasivos, patrimonio]:
         return None
@@ -47,7 +54,6 @@ def validar_balance(d):
     return None
 
 def motor_dupont(utilidad, ingresos, activos, patrimonio):
-    """Descompone ROE: Margen x Rotación x Apalancamiento"""
     margen_neto = safe_div(utilidad, ingresos)
     rotacion_activos = safe_div(ingresos, activos)
     apalancamiento = safe_div(activos, patrimonio)
@@ -71,7 +77,6 @@ def clasificar_empresa(margen, ingresos, eva):
     return "Empresa operativa estable", "🟡"
 
 def df_to_text(df):
-    """Convierte DataFrame a texto. Usa markdown si hay tabulate, si no to_string"""
     df = df.fillna('')
     if HAS_TABULATE:
         return df.to_markdown(index=False)
@@ -95,7 +100,6 @@ def extraer_texto_pro(archivo):
         else:
             doc = fitz.open(stream=archivo.read(), filetype="pdf")
             texto = "\n".join([page.get_text() for page in doc])
-            st.warning("Usando PyMuPDF. Para mejor extracción de tablas instala pdfplumber")
         return texto
     elif "spreadsheet" in tipo:
         xls = pd.ExcelFile(archivo)
@@ -110,20 +114,39 @@ def extraer_texto_pro(archivo):
         return "\n".join([p.text for p in doc.paragraphs])
     return ""
 
-# ==================== PROMPT ====================
+# ==================== PROMPT CORREGIDO ====================
 def obtener_prompt_auditor(texto):
+    # NUEVO: Limpia texto y asegura que diga "JSON" varias veces
+    texto_limpio = limpiar_texto_para_ia(texto)
     return f"""
-    Actúa como un Auditor Financiero Forense. Extrae los datos del último año disponible.
+    Eres un Auditor Financiero Forense. Debes devolver SOLO un objeto JSON válido.
+    Tu respuesta DEBE ser JSON. No agregues texto antes o después del JSON.
+
     REGLA: Si una celda está vacía o no existe, usa null. NO USES 0.
     Busca: ingresos, ebitda, utilidad_neta, activos_corrientes, activos_totales,
     pasivos_corrientes, pasivos_totales, patrimonio, eva, wacc.
-    Responde en JSON:
+
+    El formato de tu respuesta debe ser JSON con esta estructura exacta:
     {{
-      "estado_proceso": "OK" | "ARCHIVO_INVALIDO" | "DATOS_INCOMPLETOS",
-      "datos": {{... }},
-      "hallazgo_clave": "Breve nota técnica sobre la calidad de los datos"
+      "estado_proceso": "OK",
+      "datos": {{
+        "ingresos": 12345.0,
+        "ebitda": null,
+        "utilidad_neta": 1234.0,
+        "activos_corrientes": null,
+        "activos_totales": 50000.0,
+        "pasivos_corrientes": null,
+        "pasivos_totales": 20000.0,
+        "patrimonio": 30000.0,
+        "eva": 500.0,
+        "wacc": 0.11
+      }},
+      "hallazgo_clave": "texto"
     }}
-    TEXTO: {texto[:25000]}
+
+    Si no encuentras datos usa "ARCHIVO_INVALIDO" en estado_proceso.
+    TEXTO FINANCIERO:
+    {texto_limpio}
     """
 
 # ==================== MOTOR DE ANÁLISIS ====================
@@ -166,17 +189,22 @@ def realizar_analisis_v3(datos_json, client):
     if eva is not None: score += 25 if eva > 0 else 0
     score = round(score)
 
-    prompt_diag = f"""Como CFO, redacta un informe corto basado en:
-    - Estado: {estado}
-    - Ratios: Margen {m_neto}, Liquidez {lq_cte}, ROE {roe}, Endeudamiento {end_total}
-    - DuPont: Margen={dupont['margen_neto']}, Rotación={dupont['rotacion_activos']}, Apalancamiento={dupont['apalancamiento']}
-    - Alertas: {alertas}
-    Explica qué palanca del ROE debe mejorar la empresa."""
+    prompt_diag = f"""Como CFO, redacta un informe corto en formato JSON. Devuelve solo JSON:
+    {{
+      "informe": "texto del informe"
+    }}
+    Basado en: Estado={estado}, Margen={m_neto}, Liquidez={lq_cte}, ROE={roe}, Endeudamiento={end_total}, DuPont={dupont}, Alertas={alertas}"""
 
-    res_ia = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": prompt_diag}]
-    )
+    try:
+        res_ia = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt_diag}],
+            response_format={"type": "json_object"}
+        )
+        diagnostico_json = json.loads(res_ia.choices[0].message.content)
+        diagnostico_texto = diagnostico_json.get('informe', 'No se pudo generar informe')
+    except:
+        diagnostico_texto = "Error generando diagnóstico con IA. Revisar datos manualmente."
 
     return {
         "score": score, "estado": estado, "icono": icono,
@@ -192,7 +220,7 @@ def realizar_analisis_v3(datos_json, client):
             "Apalancamiento": f"{dupont['apalancamiento']:.2f}x" if dupont['apalancamiento'] is not None else "N/A",
             "ROE DuPont": f"{dupont['roe_dupont']*100:.2f}%" if dupont['roe_dupont'] is not None else "N/A"
         },
-        "diagnostico": res_ia.choices[0].message.content,
+        "diagnostico": diagnostico_texto,
         "alertas": alertas
     }
 
@@ -211,26 +239,36 @@ if archivo and key:
 
     if st.button("🚀 Ejecutar Análisis Forense"):
         with st.spinner("Extrayendo y validando estructuras..."):
-            if file_hash in st.session_state.cache:
-                datos_extraidos = st.session_state.cache[file_hash]
-                st.info("Usando datos cacheados")
-            else:
-                texto = extraer_texto_pro(archivo)
-                res_json = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[{"role": "user", "content": obtener_prompt_auditor(texto)}],
-                    response_format={"type": "json_object"}
-                )
-                datos_extraidos = json.loads(res_json.choices[0].message.content)
-                st.session_state.cache[file_hash] = datos_extraidos
+            try:
+                if file_hash in st.session_state.cache:
+                    datos_extraidos = st.session_state.cache[file_hash]
+                    st.info("Usando datos cacheados")
+                else:
+                    texto = extraer_texto_pro(archivo)
+                    if not texto.strip():
+                        st.error("No se pudo extraer texto del archivo")
+                        st.stop()
 
-            analisis = realizar_analisis_v3(datos_extraidos, client)
+                    # NUEVO: Try/except específico para Groq
+                    res_json = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[{"role": "user", "content": obtener_prompt_auditor(texto)}],
+                        response_format={"type": "json_object"}
+                    )
+                    datos_extraidos = json.loads(res_json.choices[0].message.content)
+                    st.session_state.cache[file_hash] = datos_extraidos
 
-            if "error" in analisis:
-                st.error(analisis["error"])
-            else:
-                st.session_state.analisis = analisis
-                st.success("Análisis completado.")
+                analisis = realizar_analisis_v3(datos_extraidos, client)
+
+                if "error" in analisis:
+                    st.error(analisis["error"])
+                else:
+                    st.session_state.analisis = analisis
+                    st.success("Análisis completado.")
+
+            except Exception as e:
+                st.error(f"Error de Groq: {str(e)}")
+                st.info("Causas comunes: 1) API Key inválida 2) Archivo muy grande 3) Contenido no financiero")
 
 # ==================== DASHBOARD ====================
 if st.session_state.analisis:
