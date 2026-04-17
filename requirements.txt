@@ -1,8 +1,7 @@
 streamlit
 pandas
 groq
-plotly
-openpyxl
+google-generativeai
 pdfplumber
 python-docx
-python-pptx
+openpyxl
