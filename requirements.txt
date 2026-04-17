@@ -1,7 +1,7 @@
-streamlit==1.38.0
-pandas==2.2.2
-groq==0.11.0
-plotly==5.24.0
-openpyxl==3.1.5
-xhtml2pdf==0.2.17
-python-docx==1.1.2
+streamlit
+pandas
+groq
+plotly
+openpyxl
+xhtml2pdf
+python-docx
