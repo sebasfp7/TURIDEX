@@ -1,204 +1,290 @@
 import streamlit as st
 import pandas as pd
-import fitz
+import pdfplumber
 from docx import Document
 from groq import Groq
 import json
 import io
-import re
-from datetime import datetime
-from fpdf import FPDF
-from pydantic import BaseModel
-from typing import Optional
+import hashlib
+import plotly.graph_objects as go
 
-# ==================== CONFIGURACIÓN Y ESTADO ====================
+# ==================== CONFIGURACIÓN DE PÁGINA ====================
+st.set_page_config(page_title="Finatrix Auditor v3.1", layout="wide")
+
 if 'analisis' not in st.session_state:
     st.session_state.analisis = None
+if 'cache' not in st.session_state:
+    st.session_state.cache = {}
 
-# ==================== UTILIDADES ====================
-def limpiar_texto_pdf(texto):
-    """Limpia tildes (Mayús/Minús) y caracteres especiales para FPDF"""
-    reemplazos = {
-        'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u',
-        'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U',
-        'ñ': 'n', 'Ñ': 'N', 'ü': 'u', 'Ü': 'U',
-        '¿': '', '¡': '', '«': '"', '»': '"', '—': '-'
-    }
-    for old, new in reemplazos.items():
-        texto = texto.replace(old, new)
-    return texto
+# ==================== UTILIDADES LÓGICAS ====================
+def safe_div(n, d):
+    """Evita divisiones por cero y propaga el None si el dato falta."""
+    if n is None or d == 0:
+        return None
+    return n / d
 
-# ==================== ENGINE DE PDF ====================
-class FinatrixPDF(FPDF):
-    def header(self):
-        self.set_font('Arial', 'B', 15)
-        self.cell(0, 10, 'FINATRIX: INFORME FINANCIERO PROFESIONAL', 0, 1, 'C')
-        self.ln(10)
+def validar_balance(d):
+    """NUEVO: Valida que Activo = Pasivo + Patrimonio. Tolerancia 1%"""
+    activos = d.get('activos_totales')
+    pasivos = d.get('pasivos_totales')
+    patrimonio = d.get('patrimonio')
 
-def generar_pdf(ratios, diagnostico):
-    pdf = FinatrixPDF()
-    pdf.add_page()
-    
-    # Formatos explícitos
-    FORMATOS = {
-        'ebitda': ('USD', False), 'margen_ebitda': ('%', True), 
-        'margen_neto': ('%', True), 'liquidez_corriente': ('x', True),
-        'prueba_acida': ('x', True), 'roe': ('%', True), 
-        'endeudamiento': ('%', True), 'deuda_patrimonio': ('x', True),
-        'cobertura_gastos': ('x', True)
-    }
+    if None in [activos, pasivos, patrimonio]:
+        return None # No hay datos suficientes para validar
 
-    # Score con color
-    score = ratios.get('finatrix_score', 0)
-    pdf.set_font('Arial', 'B', 16)
-    pdf.cell(0, 15, f"FINATRIX SCORE: {score}/100", 1, 1, 'C')
-    pdf.ln(5)
+    diferencia = abs(activos - (pasivos + patrimonio))
+    tolerancia = activos * 0.01 if activos > 0 else 0
 
-    # Ratios
-    pdf.set_font('Arial', 'B', 12)
-    pdf.cell(0, 10, "INDICADORES FINANCIEROS", 0, 1, 'L')
-    pdf.set_font('Arial', '', 10)
-    
-    for k, v in ratios.items():
-        if k == "finatrix_score": continue
-        label = k.replace('_', ' ').title()
-        sufijo, es_p = FORMATOS.get(k, ('', False))
-        val = f"{v:.2f}{sufijo}" if es_p else (f"${v:,.0f}" if sufijo == 'USD' else f"{v:.2f}{sufijo}")
-        
-        pdf.cell(100, 7, label, 1)
-        pdf.cell(0, 7, val, 1, 1)
+    if diferencia > tolerancia:
+        return f"ALERTA: Balance no cuadra. Diferencia: ${diferencia:,.0f}. Activo={activos:,.0f}, Pasivo+Patrimonio={pasivos+patrimonio:,.0f}"
+    return None
 
-    # Diagnóstico
-    pdf.ln(10)
-    pdf.set_font('Arial', 'B', 12)
-    pdf.cell(0, 10, "DIAGNOSTICO ESTRATEGICO", 0, 1, 'L')
-    pdf.set_font('Arial', '', 10)
-    pdf.multi_cell(0, 6, limpiar_texto_pdf(diagnostico))
-    
-    return pdf.output(dest='S')
+def motor_dupont(utilidad, ingresos, activos, patrimonio):
+    """NUEVO: Descompone ROE en 3 palancas: Margen x Rotación x Apalancamiento"""
+    margen_neto = safe_div(utilidad, ingresos)
+    rotacion_activos = safe_div(ingresos, activos)
+    apalancamiento = safe_div(activos, patrimonio)
+    roe_calculado = None
 
-# ==================== LÓGICA FINANCIERA ====================
-class FinatrixData(BaseModel):
-    ingresos_totales: float = 0.0
-    costo_ventas: float = 0.0
-    gastos_operativos: float = 0.0
-    utilidad_neta: float = 0.0
-    activos_corrientes: float = 0.0
-    activos_totales: float = 0.0
-    pasivos_corrientes: float = 0.0
-    pasivos_totales: float = 0.0
-    patrimonio: float = 0.0
-    inventarios: float = 0.0
+    if None not in [margen_neto, rotacion_activos, apalancamiento]:
+        roe_calculado = margen_neto * rotacion_activos * apalancamiento
 
-def calcular_metricas(d: FinatrixData):
-    div = lambda n, dv: n / dv if dv != 0 else 0
-    ebitda = d.ingresos_totales - d.costo_ventas - d.gastos_operativos
-    
-    r = {
-        "ebitda": ebitda,
-        "margen_ebitda": div(ebitda, d.ingresos_totales) * 100,
-        "margen_neto": div(d.utilidad_neta, d.ingresos_totales) * 100,
-        "liquidez_corriente": div(d.activos_corrientes, d.pasivos_corrientes),
-        "prueba_acida": div(d.activos_corrientes - d.inventarios, d.pasivos_corrientes),
-        "roe": div(d.utilidad_neta, d.patrimonio) * 100,
-        "endeudamiento": div(d.pasivos_totales, d.activos_totales) * 100,
-        "deuda_patrimonio": div(d.pasivos_totales, d.patrimonio),
-        "cobertura_gastos": div(d.ingresos_totales, d.gastos_operativos)
+    return {
+        "margen_neto": margen_neto,
+        "rotacion_activos": rotacion_activos,
+        "apalancamiento": apalancamiento,
+        "roe_dupont": roe_calculado
     }
 
-    # Score Gradual (Fix #1 Auditoría)
-    pts = 0
-    lq = r["liquidez_corriente"]
-    if lq >= 1.5: pts += 30
-    elif lq >= 1.2: pts += 20
-    elif lq >= 1.0: pts += 10
+def clasificar_empresa(margen, ingresos, eva):
+    if ingresos == 0 or ingresos is None:
+        return "Empresa sin operación registrada", "⚪"
+    if margen is not None and margen < 0:
+        return "Empresa en fase de pérdidas", "🔴"
+    if eva is not None and eva > 0:
+        return "Generadora de valor (EVA+)", "🟢"
+    return "Empresa operativa estable", "🟡"
 
-    m_eb = r["margen_ebitda"]
-    if m_eb >= 20: pts += 30
-    elif m_eb >= 10: pts += 15
+# ==================== EXTRACCIÓN MEJORADA ====================
+def extraer_texto_pro(archivo):
+    tipo = archivo.type
+    if tipo == "application/pdf":
+        texto = ""
+        with pdfplumber.open(archivo) as pdf:
+            for page in pdf.pages:
+                texto += page.extract_text() or ""
+                tablas = page.extract_tables()
+                for t in tablas:
+                    # MEJORA: fillna('') evita que la IA vea 'nan'
+                    df_tabla = pd.DataFrame(t[1:], columns=t[0]).fillna('')
+                    texto += "\n" + df_tabla.to_markdown(index=False)
+        return texto
+    elif "spreadsheet" in tipo:
+        xls = pd.ExcelFile(archivo)
+        texto_full = ""
+        for sheet in xls.sheet_names:
+            df = pd.read_excel(xls, sheet_name=sheet)
+            if not df.dropna(how='all').empty:
+                texto_full += f"\n### HOJA: {sheet} ###\n{df.fillna('').to_markdown(index=False)}\n"
+        return texto_full
+    return ""
 
-    end = r["endeudamiento"]
-    if end <= 40: pts += 20
-    elif end <= 60: pts += 10
+# ==================== PROMPT QUIRÚRGICO ====================
+def obtener_prompt_auditor(texto):
+    return f"""
+    Actúa como un Auditor Financiero Forense. Extrae los datos del último año disponible.
+    REGLA: Si una celda está vacía o no existe, usa null. NO USES 0.
 
-    roe = r["roe"]
-    if roe >= 15: pts += 20
-    elif roe >= 8: pts += 10
+    Busca: ingresos, ebitda, utilidad_neta, activos_corrientes, activos_totales,
+    pasivos_corrientes, pasivos_totales, patrimonio, eva, wacc.
 
-    r["finatrix_score"] = int(max(0, min(100, pts)))
-    return r
+    Responde en JSON:
+    {{
+      "estado_proceso": "OK" | "ARCHIVO_INVALIDO" | "DATOS_INCOMPLETOS",
+      "datos": {{... }},
+      "hallazgo_clave": "Breve nota técnica sobre la calidad de los datos"
+    }}
+    TEXTO: {texto[:25000]}
+    """
 
-# ==================== IA CON FALLBACK ====================
-def llamar_ia_seguro(texto, client):
-    models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
-    
-    p_ext = f"Extrae estos campos contables en JSON: ingresos_totales, costo_ventas, gastos_operativos, utilidad_neta, activos_corrientes, activos_totales, pasivos_corrientes, pasivos_totales, patrimonio, inventarios. Texto: {texto[:12000]}"
-    
-    for model in models:
-        try:
-            # 1. Extracción
-            res = client.chat.completions.create(
-                model=model, messages=[{"role": "user", "content": p_ext}],
-                response_format={"type": "json_object"}
-            )
-            raw_data = json.loads(res.choices[0].message.content)
-            
-            # 2. Cálculo intermedio para el diagnóstico (Fix #1 Bug Crítico)
-            instancia = FinatrixData(**{k: float(str(v).replace(',','')) for k,v in raw_data.items() if k in FinatrixData.model_fields})
-            ratios = calcular_metricas(instancia)
-            
-            # 3. Diagnóstico basado en RATIOS
-            res_diag = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": f"Como CFO, analiza estos RATIOS y da 3 consejos: {ratios}"}]
-            )
-            return raw_data, ratios, res_diag.choices[0].message.content
-        except Exception as e:
-            st.warning(f"Fallo en {model}, reintentando con backup...")
-            continue
-    return None, None, None
+# ==================== MOTOR DE ANÁLISIS (SIN PUNTOS CIEGOS) ====================
+def realizar_analisis_v3(datos_json, client):
+    d = datos_json['datos']
+
+    # 1. NUEVO: Validación de Integridad del Balance
+    alerta_balance = validar_balance(d)
+    if alerta_balance:
+        return {"error": alerta_balance}
+
+    # 2. Validación de campos críticos
+    errores = []
+    campos_criticos = ['ingresos', 'activos_totales', 'patrimonio']
+    for campo in campos_criticos:
+        if d.get(campo) is None:
+            errores.append(campo.replace('_', ' ').title())
+
+    if errores:
+        return {"error": f"Datos insuficientes para auditoría. Faltan: {', '.join(errores)}"}
+
+    # 3. Cálculos con Lógica safe_div
+    ingresos = d.get('ingresos')
+    utilidad = d.get('utilidad_neta')
+    activos = d.get('activos_totales')
+    pasivos_c = d.get('pasivos_corrientes')
+    activos_c = d.get('activos_corrientes')
+    patrimonio = d.get('patrimonio')
+    eva = d.get('eva')
+
+    m_neto = safe_div(utilidad, ingresos)
+    lq_cte = safe_div(activos_c, pasivos_c)
+    roe = safe_div(utilidad, patrimonio)
+    end_total = safe_div(d.get('pasivos_totales'), activos)
+
+    # 4. NUEVO: Análisis DuPont
+    dupont = motor_dupont(utilidad, ingresos, activos, patrimonio)
+
+    # 5. Clasificación y Alertas
+    estado, icono = clasificar_empresa(m_neto, ingresos, eva)
+
+    alertas = []
+    if lq_cte and lq_cte < 1.1: alertas.append("⚠️ Riesgo de Liquidez Inmediata")
+    if end_total and end_total > 0.7: alertas.append("⚠️ Apalancamiento Crítico (>70%)")
+    if eva and eva < 0: alertas.append("⚠️ Destrucción de Valor Económico")
+
+    # 6. Score Ponderado mejorado - no binario
+    score = 0
+    if m_neto is not None: score += min(25, max(0, m_neto * 250)) # 10% margen = 25 pts
+    if lq_cte is not None: score += min(25, max(0, (lq_cte - 0.5) * 35.7)) # 1.2 = 25 pts
+    if roe is not None: score += min(25, max(0, roe * 166.7)) # 15% ROE = 25 pts
+    if eva is not None: score += 25 if eva > 0 else 0
+    score = round(score)
+
+    # 7. Diagnóstico CFO con contexto DuPont
+    prompt_diag = f"""Como CFO, redacta un informe corto basado en:
+    - Estado: {estado}
+    - Ratios: Margen {m_neto}, Liquidez {lq_cte}, ROE {roe}, Endeudamiento {end_total}
+    - DuPont: Margen={dupont['margen_neto']}, Rotación={dupont['rotacion_activos']}, Apalancamiento={dupont['apalancamiento']}
+    - Alertas Técnicas: {alertas}
+    Explica qué palanca del ROE debe mejorar la empresa."""
+
+    res_ia = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt_diag}]
+    )
+
+    return {
+        "score": score,
+        "estado": estado,
+        "icono": icono,
+        "ratios": {
+            "Margen Neto": f"{m_neto*100:.2f}%" if m_neto is not None else "N/A",
+            "Liquidez": f"{lq_cte:.2f}x" if lq_cte is not None else "N/A",
+            "ROE": f"{roe*100:.2f}%" if roe is not None else "N/A",
+            "Endeudamiento": f"{end_total*100:.2f}%" if end_total is not None else "N/A"
+        },
+        "dupont": {
+            "Margen Neto": f"{dupont['margen_neto']*100:.2f}%" if dupont['margen_neto'] is not None else "N/A",
+            "Rotación Activos": f"{dupont['rotacion_activos']:.2f}x" if dupont['rotacion_activos'] is not None else "N/A",
+            "Apalancamiento": f"{dupont['apalancamiento']:.2f}x" if dupont['apalancamiento'] is not None else "N/A",
+            "ROE DuPont": f"{dupont['roe_dupont']*100:.2f}%" if dupont['roe_dupont'] is not None else "N/A"
+        },
+        "diagnostico": res_ia.choices[0].message.content,
+        "alertas": alertas
+    }
 
 # ==================== UI STREAMLIT ====================
-st.title("🛡️ Finatrix V6.8 Enterprise")
+st.title("🛡️ Finatrix Auditor v3.1")
+st.markdown("### Sistema de Diagnóstico Financiero con Análisis DuPont")
 
 with st.sidebar:
-    st.header("Configuración")
     key = st.text_input("Groq API Key", type="password")
-    archivo = st.file_uploader("Subir Balance", type=["pdf", "docx", "xlsx"])
+    archivo = st.file_uploader("Subir Estados Financieros", type=["pdf", "xlsx"])
+    st.divider()
+    st.caption("v3.1 incluye: Validación de balance, DuPont y radar de salud")
 
 if archivo and key:
     client = Groq(api_key=key)
-    
-    if st.button("🚀 Iniciar Análisis"):
-        with st.spinner("Ejecutando auditoría multicapa..."):
-            # Extracción simple de texto
-            if archivo.type == "application/pdf":
-                doc = fitz.open(stream=archivo.read(), filetype="pdf")
-                texto = "\n".join([page.get_text() for page in doc])
+
+    # NUEVO: Cache por hash para no pagar doble
+    file_hash = hashlib.md5(archivo.getvalue()).hexdigest()
+
+    if st.button("🚀 Ejecutar Análisis Forense"):
+        with st.spinner("Extrayendo y validando estructuras..."):
+
+            if file_hash in st.session_state.cache:
+                datos_extraidos = st.session_state.cache[file_hash]
+                st.info("Usando datos cacheados de análisis previo")
             else:
-                texto = "Simulación de texto para otros formatos" # (Añadir lógica docx/xlsx aquí)
+                texto = extraer_texto_pro(archivo)
+                res_json = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": obtener_prompt_auditor(texto)}],
+                    response_format={"type": "json_object"}
+                )
+                datos_extraidos = json.loads(res_json.choices[0].message.content)
+                st.session_state.cache[file_hash] = datos_extraidos
 
-            raw, ratios, diag = llamar_ia_seguro(texto, client)
-            
-            if raw:
-                st.session_state.analisis = {"ratios": ratios, "diag": diag}
-                st.success("Análisis completado con éxito.")
+            # Análisis Matemático + Diagnóstico
+            analisis = realizar_analisis_v3(datos_extraidos, client)
 
+            if "error" in analisis:
+                st.error(analisis["error"])
+            else:
+                st.session_state.analisis = analisis
+                st.success("Análisis completado.")
+
+# ==================== DASHBOARD DE RESULTADOS ====================
 if st.session_state.analisis:
-    data = st.session_state.analisis
-    r = data["ratios"]
-    
-    # Dashboard
+    res = st.session_state.analisis
+
     col1, col2, col3 = st.columns(3)
-    col1.metric("SCORE", f"{r['finatrix_score']}/100")
-    col2.metric("Liquidez", f"{r['liquidez_corriente']:.2f}x")
-    col3.metric("Endeudamiento", f"{r['endeudamiento']:.1f}%")
+    col1.metric("SCORE", f"{res['score']}/100")
+    col2.metric("ESTADO", res['estado'], res['icono'])
 
-    st.subheader("Diagnóstico Estratégico")
-    st.info(data["diag"])
+    # NUEVO: Gráfico radar de salud financiera
+    with col3:
+        valores_radar = []
+        labels_radar = []
 
-    # Preview & Download (Fix #11)
-    with st.expander("👁️ Vista previa del Reporte"):
-        st.write("El PDF incluirá todos los indicadores y el diagnóstico CFO.")
-        pdf_bytes = generar_pdf(r, data["diag"])
-        st.download_button("📥 Descargar PDF Oficial", pdf_bytes, "Reporte_Finatrix.pdf", "application/pdf")
+        m_neto_val = float(res['ratios']['Margen Neto'].replace('%','')) if res['ratios']['Margen Neto']!= "N/A" else 0
+        liq_val = float(res['ratios']['Liquidez'].replace('x','')) if res['ratios']['Liquidez']!= "N/A" else 0
+        roe_val = float(res['ratios']['ROE'].replace('%','')) if res['ratios']['ROE']!= "N/A" else 0
+        end_val = float(res['ratios']['Endeudamiento'].replace('%','')) if res['ratios']['Endeudamiento']!= "N/A" else 100
+
+        # Normalizar a escala 0-100 para el radar
+        valores_radar = [
+            min(100, max(0, m_neto_val * 5)), # 20% margen = 100
+            min(100, max(0, liq_val * 50)), # 2.0x liquidez = 100
+            min(100, max(0, roe_val * 5)), # 20% ROE = 100
+            min(100, max(0, 100 - end_val)) # 0% endeudamiento = 100
+        ]
+        labels_radar = ['Rentabilidad','Liquidez','ROE','Solvencia']
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatterpolar(
+            r=valores_radar,
+            theta=labels_radar,
+            fill='toself',
+            name='Empresa'
+        ))
+        fig.update_layout(
+            polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+            showlegend=False,
+            height=250,
+            margin=dict(l=20, r=20, t=20, b=20)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    tab1, tab2, tab3 = st.tabs(["📊 Ratios", "🔬 Análisis DuPont", "🧠 Informe CFO"])
+
+    with tab1:
+        st.table(pd.DataFrame([res['ratios']]))
+
+    with tab2:
+        st.caption("Descomposición del ROE: Margen × Rotación × Apalancamiento")
+        st.table(pd.DataFrame([res['dupont']]))
+
+    with tab3:
+        if res['alertas']:
+            st.warning("### Alertas de Auditoría\n" + "\n".join(res['alertas']))
+        st.markdown(res['diagnostico'])
