@@ -3,127 +3,124 @@ import pandas as pd
 from groq import Groq
 import json
 import plotly.graph_objects as go
+import io
+from xhtml2pdf import pisa
 
-# ==================== 1. CONFIGURACIÓN Y MOTOR FINANCIERO (PYTHON) ====================
-st.set_page_config(page_title="Finatrix Elite v5.1", layout="wide")
+# ==================== 1. MOTOR FINANCIERO Y FORMATEO ====================
+st.set_page_config(page_title="Finatrix Elite v6.1", layout="wide")
+
+def safe_format(valor, tipo='num'):
+    if not isinstance(valor, (int, float)): return "N/D"
+    if tipo == 'pct': return f"{valor:.2%}"
+    if tipo == 'x': return f"{valor:.2f}x"
+    return f"${valor:,.0f}"
 
 def safe_div(n, d):
-    return n / d if n and d and d != 0 else None
+    if n is None or d is None or d == 0: return None
+    return n / d
 
-def validar_balance_pro(d):
-    """Guardarraíl de seguridad contable (Fix Opinión 2)"""
-    act, pas, pat = d.get('activos_totales'), d.get('pasivos_totales'), d.get('patrimonio')
-    if not all([isinstance(x, (int, float)) for x in [act, pas, pat]]):
-        return "⚠️ Datos de balance incompletos para validación."
-    diff = abs(act - (pas + pat))
-    if diff > act * 0.01:
-        return f"❌ Balance descuadrado por ${diff:,.0f} (Dif. > 1%)."
-    return "✅ Balance Cuadrado"
-
-def calcular_metricas_python(d1, d5):
-    """El 'Cerebro' Matemático: Aquí no hay alucinaciones de IA"""
-    v1, v5 = d1.get('ventas'), d5.get('ventas')
-    eb5 = d5.get('ebitda')
-    
-    m_ebitda = safe_div(eb5, v5)
-    cagr = ((v5 / v1)**(1/4) - 1) if v1 and v5 and v1 > 0 else None
-    rc = safe_div(d5.get('activos_corrientes'), d5.get('pasivos_corrientes'))
-    
+def calcular_metricas_python(d_a1, d_a5):
+    v1, v5, eb5 = d_a1.get('ventas'), d_a5.get('ventas'), d_a5.get('ebitda')
+    cagr = ((v5 / v1)**(1/4) - 1) if v1 and v5 and v1 > 0 and v5 > 0 else None
     return {
         "cagr": cagr,
-        "m_ebitda": m_ebitda,
-        "liquidez": rc,
-        "coherencia": "Error" if (eb5 and v5 and eb5 > v5) else "OK"
+        "m_ebitda": safe_div(eb5, v5),
+        "liquidez": safe_div(d_a5.get('activos_corrientes'), d_a5.get('pasivos_corrientes')),
+        "incoherencia": True if (eb5 and v5 and eb5 > v5) else False,
+        "eva": d_a5.get('eva'),
+        "wacc": d_a5.get('wacc')
     }
 
-# ==================== 2. EXTRACCIÓN ROBUSTA (Fix Opinión 2) ====================
+def validar_balance_pro(d):
+    act, pas, pat = d.get('activos_totales'), d.get('pasivos_totales'), d.get('patrimonio')
+    if not all(isinstance(x, (int, float)) for x in [act, pas, pat]):
+        return "⚠️ Datos de balance insuficientes."
+    diff = abs(act - (pas + pat))
+    return f"❌ Descuadre: ${diff:,.0f}" if diff > act * 0.01 else "✅ Balance Cuadrado"
+
+# ==================== 2. EXTRACCIÓN Y NARRATIVA ====================
 def extraer_datos_excel(archivo):
     xls = pd.ExcelFile(archivo)
     texto = ""
     for sheet in xls.sheet_names:
-        # NO fillna(0) -> Usamos None para mantener integridad (Fix Opinión 1)
-        df = pd.read_excel(xls, sheet_name=sheet).where(pd.notnull(pd.read_excel(xls, sheet_name=sheet)), None).head(35)
-        try:
-            texto += f"\n--- HOJA: {sheet} ---\n{df.to_markdown(index=False)}\n"
-        except:
-            texto += f"\n--- HOJA: {sheet} ---\n{df.to_csv(index=False, sep='|')}\n"
-    return texto[:27000]
+        df = pd.read_excel(xls, sheet_name=sheet).head(35)
+        df_clean = df.where(pd.notnull(df), None)
+        texto += f"\n--- HOJA: {sheet} ---\n{df_clean.to_csv(index=False, sep='|')}\n"
+    if len(texto) > 26000:
+        st.sidebar.warning("⚠️ Datos truncados para optimizar análisis.")
+        return texto[:26000] + "\n[TRUNCADO]"
+    return texto
 
-# ==================== 3. PROMPT DE NARRATIVA ESTRATÉGICA ====================
-def obtener_analisis_ia(contexto, metricas_py, client):
-    # Pasamos las métricas calculadas por Python como 'anclas' (Fix Opinión 1)
-    prompt = f"""
-    Eres un Senior Partner de Consultoría. No calcules, EXPLICA estos resultados:
-    METRICAS REALES (Calculadas por sistema):
-    - Crecimiento Ventas (CAGR): {metricas_py['cagr']:.2% if metricas_py['cagr'] else 'N/D'}
-    - Margen EBITDA A5: {metricas_py['m_ebitda']:.2% if metricas_py['m_ebitda'] else 'N/D'}
-    - Razón Corriente: {metricas_py['liquidez']:.2f if metricas_py['liquidez'] else 'N/D'}
-    
-    TAREA: Genera un Informe Ejecutivo basado en estos números y los datos del Excel:
-    1. Diagnóstico de Rentabilidad.
-    2. Análisis de Liquidez (¿Dinero ocioso o riesgo?).
-    3. Creación de Valor (EVA vs WACC).
-    4. Estrategia de Cartera y Activos.
-    5. Plan de Acción (3 pasos inmediatos).
-
-    REGLA: Si ves incoherencias (ej. EBITDA > Ventas), denúncialo.
-    {contexto}
-    RESPONDE SOLO EN JSON:
-    {{
-      "diagnostico_ia": "texto markdown extenso...",
-      "score": 1-100,
-      "alerta_critica": "string o null"
-    }}
-    """
-    res = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": prompt}],
-        response_format={"type": "json_object"}
-    )
+def obtener_analisis_ia(contexto, m, client):
+    c_txt, e_txt = safe_format(m['cagr'], 'pct'), safe_format(m['m_ebitda'], 'pct')
+    l_txt, w_txt, ev_txt = safe_format(m['liquidez'], 'x'), safe_format(m['wacc'], 'pct'), safe_format(m['eva'])
+    prompt = f"""Eres Senior Partner. Explica: CAGR: {c_txt}, EBITDA: {e_txt}, Liq: {l_txt}, WACC: {w_txt}, EVA: {ev_txt}. 
+    Analiza Rentabilidad y Riesgos. Excel: {contexto}. RESPONDE SOLO JSON: {{ "diagnostico": "markdown...", "score": 0-100 }}"""
+    res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"user", "content":prompt}], response_format={"type":"json_object"})
     return json.loads(res.choices[0].message.content)
 
-# ==================== 4. INTERFAZ Y LÓGICA DE CONTROL ====================
-st.title("🛡️ Finatrix Elite v5.1")
+# ==================== 3. FLUJO PRINCIPAL ====================
+st.sidebar.header("⚙️ Finatrix Elite v6.1")
 api_key = st.sidebar.text_input("Groq API Key", type="password")
 archivo = st.sidebar.file_uploader("Subir Simulación", type=["xlsx"])
 
-if archivo and api_key:
+if not api_key: st.info("🔑 Ingresa tu API Key para comenzar.")
+elif archivo:
     client = Groq(api_key=api_key)
-    if st.button("🚀 Ejecutar Auditoría Híbrida"):
-        with st.spinner("Auditando..."):
-            # A. Extracción e IA de extracción inicial
-            contexto = extraer_datos_excel(archivo)
+    if st.button("🚀 Ejecutar Auditoría"):
+        try:
+            texto_excel = extraer_datos_excel(archivo)
+            # Fix 1: "SOLO JSON" para evitar errores de Groq
+            extract_prompt = """Extrae SOLO JSON. Si un dato no existe usa null. 
+            {"año1": {"ventas":num,"ebitda":num,"activos_corrientes":num,"pasivos_corrientes":num}, 
+            "año5": {"ventas":num,"ebitda":num,"activos_totales":num,"pasivos_totales":num,"patrimonio":num,
+            "activos_corrientes":num,"pasivos_corrientes":num,"eva":num,"wacc":num,"uodi":num}}"""
             
-            # B. IA extrae datos brutos (Sin calcular)
-            extract_prompt = "Extrae ventas A1, ventas A5, ebitda A5, activos_totales, pasivos_totales, patrimonio, activos_corrientes, pasivos_corrientes. Devuelve JSON."
-            res_raw = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"user", "content": f"{extract_prompt}\n{contexto}"}], response_format={"type":"json_object"})
-            d_raw = json.loads(res_raw.choices[0].message.content)
+            res_raw = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"user", "content": f"{extract_prompt}\n{texto_excel}"}], response_format={"type":"json_object"})
+            d = json.loads(res_raw.choices[0].message.content)
             
-            # C. Python toma el control (Fix Opinión 1)
-            metricas = calcular_metricas_python(d_raw.get('año1', d_raw), d_raw.get('año5', d_raw))
-            validacion = validar_balance_pro(d_raw.get('año5', d_raw))
+            d_a1, d_a5 = d.get('año1', {}), d.get('año5', {})
+            m = calcular_metricas_python(d_a1, d_a5)
+            status_bal = validar_balance_pro(d_a5)
             
-            # D. IA genera la narrativa (Modo Consultor)
-            analisis = obtener_analisis_ia(contexto, metricas, client)
+            t1, t2 = st.tabs(["📋 Informe Ejecutivo", "🛡️ Centro de Auditoría"])
+            with t1:
+                analisis = obtener_analisis_ia(texto_excel, m, client)
+                st.markdown(analisis.get('diagnostico'))
+                # Feature: Exportar a PDF
+                if st.button("📄 Generar Informe PDF"):
+                    html = f"<html><body><h1>Informe Finatrix</h1>{analisis.get('diagnostico')}</body></html>"
+                    pdf = io.BytesIO()
+                    pisa.CreatePDF(io.StringIO(html), dest=pdf)
+                    st.download_button("Descargar PDF", pdf.getvalue(), "informe_finatrix.pdf", "application/pdf")
             
-            # --- DASHBOARD ---
-            st.metric("Confianza del Análisis (Score)", f"{analisis['score']}%")
-            
-            # Alertas Rojas (Fix Opinión 1)
-            if validacion != "✅ Balance Cuadrado": st.error(validacion)
-            if metricas['coherencia'] == "Error": st.error("🚨 ERROR: EBITDA reportado es mayor que las Ventas.")
-            
-            tab1, tab2, tab3 = st.tabs(["📋 Resumen Ejecutivo", "🧐 Análisis Auditor", "📊 Métricas Hard"])
-            
-            with tab1:
-                st.markdown(analisis['diagnostico_ia'])
-            
-            with tab2:
-                st.subheader("Modo Auditoría: Detección de Inconsistencias")
-                st.write(f"**Estado del Balance:** {validacion}")
-                st.write(f"**Coherencia Operativa:** {metricas['coherencia']}")
-                if analisis.get('alerta_critica'): st.warning(analisis['alerta_critica'])
+            with t2:
+                st.metric("Salud Financiera", f"{analisis.get('score', 0)}/100")
+                st.write(f"**Validación:** {status_bal}")
+                if m['incoherencia']: st.warning("🚨 Alerta: EBITDA > Ventas")
+                st.json(m)
+
+            # --- MODO SIMULADOR v6.1 ---
+            st.write("---")
+            with st.expander("🎮 Simulador de Escenarios y Comparativa"):
+                c1, c2, c3 = st.columns(3)
+                v_sim = c1.number_input("Ventas Año 5", value=float(d_a5.get('ventas') or 0))
+                w_sim = c2.number_input("WACC %", value=float((d_a5.get('wacc') or 0.12)*100)) / 100
+                e_sim = c3.number_input("EBITDA Año 5", value=float(d_a5.get('ebitda') or 0))
                 
-            with tab3:
-                st.write("### Datos Calculados por Python (100% Verificados)")
-                st.json(metricas)
+                # Fix 2: Verificación de UODI con is None
+                u_base = d_a5.get('uodi')
+                u_sim = u_base if u_base is not None else e_sim * 0.7
+                
+                # Fix 3: Botón deshabilitado si no hay activos para EVA
+                if st.button("📊 Recalcular y Guardar", disabled=d_a5.get('activos_totales') is None):
+                    eva_sim = u_sim - ((d_a5.get('activos_totales') or 0) * w_sim)
+                    if 'escenarios' not in st.session_state: st.session_state.escenarios = []
+                    st.session_state.escenarios.append({"Ventas": v_sim, "WACC": f"{w_sim:.1%}", "EVA": round(eva_sim, 2)})
+                    st.success("Escenario guardado.")
+                
+                if 'escenarios' in st.session_state and st.session_state.escenarios:
+                    st.write("### Comparativa de Escenarios")
+                    st.table(pd.DataFrame(st.session_state.escenarios))
+
+        except Exception as e: st.error(f"Falla crítica: {e}")
