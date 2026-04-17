@@ -37,13 +37,12 @@ def safe_div(n, d):
     return n / d
 
 def limpiar_texto_para_ia(texto):
-    """NUEVO: Quita caracteres que rompen el JSON de Groq"""
-    # Quita caracteres de control y emojis
+    """Quita caracteres que rompen el JSON de Groq"""
     texto = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\xff]', '', texto)
-    # Limita longitud para no exceder tokens
     return texto[:24000]
 
 def validar_balance(d):
+    """Valida que Activo = Pasivo + Patrimonio. Tolerancia 1%"""
     activos, pasivos, patrimonio = d.get('activos_totales'), d.get('pasivos_totales'), d.get('patrimonio')
     if None in [activos, pasivos, patrimonio]:
         return None
@@ -54,6 +53,7 @@ def validar_balance(d):
     return None
 
 def motor_dupont(utilidad, ingresos, activos, patrimonio):
+    """Descompone ROE: Margen x Rotación x Apalancamiento"""
     margen_neto = safe_div(utilidad, ingresos)
     rotacion_activos = safe_div(ingresos, activos)
     apalancamiento = safe_div(activos, patrimonio)
@@ -116,36 +116,52 @@ def extraer_texto_pro(archivo):
 
 # ==================== PROMPT CORREGIDO ====================
 def obtener_prompt_auditor(texto):
-    # NUEVO: Limpia texto y asegura que diga "JSON" varias veces
     texto_limpio = limpiar_texto_para_ia(texto)
     return f"""
-    Eres un Auditor Financiero Forense. Debes devolver SOLO un objeto JSON válido.
-    Tu respuesta DEBE ser JSON. No agregues texto antes o después del JSON.
+    Eres un Auditor Financiero Forense especializado en la plantilla Finatrix. Tu única salida debe ser un objeto JSON válido. No agregues texto antes o después del JSON.
 
-    REGLA: Si una celda está vacía o no existe, usa null. NO USES 0.
-    Busca: ingresos, ebitda, utilidad_neta, activos_corrientes, activos_totales,
-    pasivos_corrientes, pasivos_totales, patrimonio, eva, wacc.
+    REGLAS CRÍTICAS DE EXTRACCIÓN:
+    1. Usa SOLO datos del último año disponible, columna "AÑO 5" o la más reciente.
+    2. Si una celda está vacía, tiene guión, o no existe, usa null. PROHIBIDO usar 0.
+    3. MAPEO OBLIGATORIO para evitar confusiones:
+       - "ingresos" = Busca "Utilidad Operativa" en HOJA 'WACC - EVA'. Si no existe, null.
+       - "ebitda" = Busca "EBITDA" en HOJA 'EBITDA'. Si no existe, null.
+       - "utilidad_neta" = No existe en esta plantilla. Siempre null.
+       - "activos_corrientes" = Busca "Activos Corrientes" o "Activo Corriente". Si no existe, null.
+       - "activos_totales" = Busca "Total Activo" en HOJA 'WACC - EVA'. NUNCA uses "Activos".
+       - "pasivos_corrientes" = Busca "Pasivos Corrientes" o "Pasivo Corriente". Si no existe, null.
+       - "pasivos_totales" = Busca "Pasivos" en HOJA 'WACC - EVA'.
+       - "patrimonio" = Busca "Patrimonio" en HOJA 'WACC - EVA'.
+       - "eva" = Busca "EVA" en HOJA 'WACC - EVA'.
+       - "wacc" = Busca "WACC - CPPC" en HOJA 'WACC - EVA'.
+    4. VALIDACIÓN: Si no encuentras "Total Activo" o "Patrimonio" en AÑO 5, marca estado_proceso como "ARCHIVO_INVALIDO".
 
-    El formato de tu respuesta debe ser JSON con esta estructura exacta:
+    ESTRUCTURA JSON OBLIGATORIA. Respeta tipos de datos:
     {{
       "estado_proceso": "OK",
       "datos": {{
-        "ingresos": 12345.0,
+        "ingresos": 2610.0,
         "ebitda": null,
-        "utilidad_neta": 1234.0,
+        "utilidad_neta": null,
         "activos_corrientes": null,
-        "activos_totales": 50000.0,
+        "activos_totales": 11500.0,
         "pasivos_corrientes": null,
-        "pasivos_totales": 20000.0,
-        "patrimonio": 30000.0,
-        "eva": 500.0,
-        "wacc": 0.11
+        "pasivos_totales": 6780.0,
+        "patrimonio": 4720.0,
+        "eva": 759.0,
+        "wacc": 0.1152
       }},
-      "hallazgo_clave": "texto"
+      "hallazgo_clave": "Datos extraídos de AÑO 5, HOJA WACC - EVA. Total Activo cuadra con Pasivo+Patrimonio."
     }}
 
-    Si no encuentras datos usa "ARCHIVO_INVALIDO" en estado_proceso.
-    TEXTO FINANCIERO:
+    Si faltan Total Activo, Pasivos o Patrimonio del AÑO 5, responde:
+    {{
+      "estado_proceso": "ARCHIVO_INVALIDO",
+      "datos": {{}},
+      "hallazgo_clave": "No se detectaron cifras de balance del último año"
+    }}
+
+    TEXTO FINANCIERO A PROCESAR:
     {texto_limpio}
     """
 
@@ -249,7 +265,6 @@ if archivo and key:
                         st.error("No se pudo extraer texto del archivo")
                         st.stop()
 
-                    # NUEVO: Try/except específico para Groq
                     res_json = client.chat.completions.create(
                         model="llama-3.3-70b-versatile",
                         messages=[{"role": "user", "content": obtener_prompt_auditor(texto)}],
@@ -257,6 +272,9 @@ if archivo and key:
                     )
                     datos_extraidos = json.loads(res_json.choices[0].message.content)
                     st.session_state.cache[file_hash] = datos_extraidos
+
+                with st.expander("🔍 Ver datos extraídos por la IA"):
+                    st.json(datos_extraidos['datos'])
 
                 analisis = realizar_analisis_v3(datos_extraidos, client)
 
