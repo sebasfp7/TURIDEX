@@ -5,9 +5,10 @@ import json
 import plotly.graph_objects as go
 import io
 from xhtml2pdf import pisa
+from docx import Document # Nueva librería para Word
 
 # ==================== 1. MOTOR FINANCIERO Y FORMATEO ====================
-st.set_page_config(page_title="Finatrix Elite v6.1", layout="wide")
+st.set_page_config(page_title="Finatrix Elite v6.3", layout="wide")
 
 def safe_format(valor, tipo='num'):
     if not isinstance(valor, (int, float)): return "N/D"
@@ -28,7 +29,9 @@ def calcular_metricas_python(d_a1, d_a5):
         "liquidez": safe_div(d_a5.get('activos_corrientes'), d_a5.get('pasivos_corrientes')),
         "incoherencia": True if (eb5 and v5 and eb5 > v5) else False,
         "eva": d_a5.get('eva'),
-        "wacc": d_a5.get('wacc')
+        "wacc": d_a5.get('wacc'),
+        "uodi": d_a5.get('uodi'),
+        "activos_totales": d_a5.get('activos_totales')
     }
 
 def validar_balance_pro(d):
@@ -47,32 +50,33 @@ def extraer_datos_excel(archivo):
         df_clean = df.where(pd.notnull(df), None)
         texto += f"\n--- HOJA: {sheet} ---\n{df_clean.to_csv(index=False, sep='|')}\n"
     if len(texto) > 26000:
-        st.sidebar.warning("⚠️ Datos truncados para optimizar análisis.")
         return texto[:26000] + "\n[TRUNCADO]"
     return texto
 
 def obtener_analisis_ia(contexto, m, client):
     c_txt, e_txt = safe_format(m['cagr'], 'pct'), safe_format(m['m_ebitda'], 'pct')
     l_txt, w_txt, ev_txt = safe_format(m['liquidez'], 'x'), safe_format(m['wacc'], 'pct'), safe_format(m['eva'])
-    prompt = f"""Eres Senior Partner. Explica: CAGR: {c_txt}, EBITDA: {e_txt}, Liq: {l_txt}, WACC: {w_txt}, EVA: {ev_txt}. 
-    Analiza Rentabilidad y Riesgos. Excel: {contexto}. RESPONDE SOLO JSON: {{ "diagnostico": "markdown...", "score": 0-100 }}"""
+    
+    prompt = f"""Eres Senior Partner. Analiza: CAGR: {c_txt}, Margen EBITDA: {e_txt}, Liquidez: {l_txt}, WACC: {w_txt}, EVA: {ev_txt}.
+    Incoherencia: {"SÍ" if m['incoherencia'] else "NO"}.
+    Excel: {contexto}
+    RESPONDE SOLO JSON: {{ "diagnostico": "markdown...", "score": 0-100 }}"""
     res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"user", "content":prompt}], response_format={"type":"json_object"})
     return json.loads(res.choices[0].message.content)
 
-# ==================== 3. FLUJO PRINCIPAL ====================
-st.sidebar.header("⚙️ Finatrix Elite v6.1")
+# ==================== 3. INTERFAZ ====================
+st.sidebar.header("⚙️ Finatrix Elite v6.3")
 api_key = st.sidebar.text_input("Groq API Key", type="password")
-archivo = st.sidebar.file_uploader("Subir Simulación", type=["xlsx"])
+archivo = st.sidebar.file_uploader("Subir Simulación Excel", type=["xlsx"])
 
-if not api_key: st.info("🔑 Ingresa tu API Key para comenzar.")
+if not api_key:
+    st.info("🔑 Ingresa tu API Key.")
 elif archivo:
     client = Groq(api_key=api_key)
-    if st.button("🚀 Ejecutar Auditoría"):
+    if st.button("🚀 Iniciar Auditoría"):
         try:
             texto_excel = extraer_datos_excel(archivo)
-            # Fix 1: "SOLO JSON" para evitar errores de Groq
-            extract_prompt = """Extrae SOLO JSON. Si un dato no existe usa null. 
-            {"año1": {"ventas":num,"ebitda":num,"activos_corrientes":num,"pasivos_corrientes":num}, 
+            extract_prompt = """Extrae SOLO JSON: {"año1": {"ventas":num,"ebitda":num,"activos_corrientes":num,"pasivos_corrientes":num}, 
             "año5": {"ventas":num,"ebitda":num,"activos_totales":num,"pasivos_totales":num,"patrimonio":num,
             "activos_corrientes":num,"pasivos_corrientes":num,"eva":num,"wacc":num,"uodi":num}}"""
             
@@ -82,45 +86,49 @@ elif archivo:
             d_a1, d_a5 = d.get('año1', {}), d.get('año5', {})
             m = calcular_metricas_python(d_a1, d_a5)
             status_bal = validar_balance_pro(d_a5)
+            analisis = obtener_analisis_ia(texto_excel, m, client)
             
-            t1, t2 = st.tabs(["📋 Informe Ejecutivo", "🛡️ Centro de Auditoría"])
+            t1, t2 = st.tabs(["📋 Informe", "🛡️ Auditoría"])
+            
             with t1:
-                analisis = obtener_analisis_ia(texto_excel, m, client)
-                st.markdown(analisis.get('diagnostico'))
-                # Feature: Exportar a PDF
-                if st.button("📄 Generar Informe PDF"):
-                    html = f"<html><body><h1>Informe Finatrix</h1>{analisis.get('diagnostico')}</body></html>"
-                    pdf = io.BytesIO()
-                    pisa.CreatePDF(io.StringIO(html), dest=pdf)
-                    st.download_button("Descargar PDF", pdf.getvalue(), "informe_finatrix.pdf", "application/pdf")
-            
+                diag_text = analisis.get('diagnostico', '')
+                st.markdown(diag_text)
+                
+                col_down1, col_down2 = st.columns(2)
+                
+                # --- EXPORTAR PDF ---
+                with col_down1:
+                    if st.button("📄 Exportar a PDF"):
+                        html_pdf = f"<html><body><h1>Informe Finatrix</h1><hr>{diag_text.replace('\n', '<br>')}</body></html>"
+                        pdf_io = io.BytesIO()
+                        pisa.CreatePDF(io.StringIO(html_pdf), dest=pdf_io)
+                        st.download_button("⬇️ Descargar PDF", pdf_io.getvalue(), "informe.pdf", "application/pdf")
+                
+                # --- EXPORTAR WORD ---
+                with col_down2:
+                    if st.button("📝 Exportar a Word"):
+                        doc = Document()
+                        doc.add_heading('Informe Ejecutivo Finatrix Elite', 0)
+                        doc.add_paragraph(diag_text)
+                        doc_io = io.BytesIO()
+                        doc.save(doc_io)
+                        doc_io.seek(0)
+                        st.download_button("⬇️ Descargar Word", doc_io.getvalue(), "informe.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
             with t2:
-                st.metric("Salud Financiera", f"{analisis.get('score', 0)}/100")
+                st.metric("Score", f"{analisis.get('score', 0)}/100")
                 st.write(f"**Validación:** {status_bal}")
-                if m['incoherencia']: st.warning("🚨 Alerta: EBITDA > Ventas")
                 st.json(m)
 
-            # --- MODO SIMULADOR v6.1 ---
+            # --- SIMULADOR ---
             st.write("---")
-            with st.expander("🎮 Simulador de Escenarios y Comparativa"):
-                c1, c2, c3 = st.columns(3)
-                v_sim = c1.number_input("Ventas Año 5", value=float(d_a5.get('ventas') or 0))
-                w_sim = c2.number_input("WACC %", value=float((d_a5.get('wacc') or 0.12)*100)) / 100
-                e_sim = c3.number_input("EBITDA Año 5", value=float(d_a5.get('ebitda') or 0))
-                
-                # Fix 2: Verificación de UODI con is None
-                u_base = d_a5.get('uodi')
-                u_sim = u_base if u_base is not None else e_sim * 0.7
-                
-                # Fix 3: Botón deshabilitado si no hay activos para EVA
-                if st.button("📊 Recalcular y Guardar", disabled=d_a5.get('activos_totales') is None):
-                    eva_sim = u_sim - ((d_a5.get('activos_totales') or 0) * w_sim)
-                    if 'escenarios' not in st.session_state: st.session_state.escenarios = []
-                    st.session_state.escenarios.append({"Ventas": v_sim, "WACC": f"{w_sim:.1%}", "EVA": round(eva_sim, 2)})
-                    st.success("Escenario guardado.")
-                
-                if 'escenarios' in st.session_state and st.session_state.escenarios:
-                    st.write("### Comparativa de Escenarios")
-                    st.table(pd.DataFrame(st.session_state.escenarios))
+            with st.expander("🎮 Simulador"):
+                v_sim = st.number_input("Ventas", value=float(d_a5.get('ventas') or 0))
+                e_sim = st.number_input("EBITDA", value=float(d_a5.get('ebitda') or 0))
+                if st.button("📊 Simular"):
+                    u_sim = (d_a5.get('uodi') or e_sim * 0.7)
+                    eva_sim = u_sim - ((d_a5.get('activos_totales') or 0) * (d_a5.get('wacc') or 0.12))
+                    st.metric("Nuevo EVA", safe_format(eva_sim))
 
-        except Exception as e: st.error(f"Falla crítica: {e}")
+        except Exception as e:
+            st.error(f"Error: {e}")
