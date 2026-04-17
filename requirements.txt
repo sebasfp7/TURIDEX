@@ -1,8 +1,7 @@
-pydantic
 streamlit
-groq
 pandas
-openpyxl
-pymupdf
+pdfplumber
 python-docx
-fpdf
+groq
+plotly
+openpyxl
