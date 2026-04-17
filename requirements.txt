@@ -3,7 +3,6 @@ pandas
 groq
 plotly
 openpyxl
-fpdf
+pdfplumber
 python-docx
 python-pptx
-pdfplumber
