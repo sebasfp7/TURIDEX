@@ -4,9 +4,9 @@ from groq import Groq
 import json
 import plotly.graph_objects as go
 import io
-from xhtml2pdf import pisa
+from fpdf import FPDF
 from docx import Document
-import markdown # NUEVO: para que el PDF renderice bien
+import markdown
 
 # ==================== 1. MOTOR FINANCIERO Y FORMATEO ====================
 st.set_page_config(page_title="Finatrix Elite v6.4", layout="wide")
@@ -118,12 +118,15 @@ elif archivo:
 
                     with c_down1:
                         if st.button("📄 Generar Informe PDF"):
-                            # Fix: convertir markdown a HTML antes del PDF
-                            html_content = markdown.markdown(diag_md)
-                            html = f"<html><body><h1>Informe Finatrix</h1>{html_content}</body></html>"
-                            p_io = io.BytesIO()
-                            pisa.CreatePDF(io.StringIO(html), dest=p_io)
-                            st.download_button("⬇️ Obtener PDF", p_io.getvalue(), "informe.pdf", "application/pdf")
+                            pdf = FPDF()
+                            pdf.add_page()
+                            pdf.set_font("Arial", size=11)
+                            pdf.multi_cell(0, 8, "Informe Finatrix Elite v6.4\n\n")
+                            for line in diag_md.split('\n'):
+                                line_clean = line.encode('latin-1', 'replace').decode('latin-1')
+                                pdf.multi_cell(0, 6, line_clean)
+                            pdf_io = io.BytesIO(pdf.output(dest='S').encode('latin-1'))
+                            st.download_button("⬇️ Descargar PDF", pdf_io.getvalue(), "informe_finatrix.pdf", "application/pdf")
 
                     with c_down2:
                         if st.button("📝 Descargar Word"):
@@ -163,4 +166,4 @@ elif archivo:
 
         except Exception as e:
             st.error(f"Falla crítica: {e}")
-            st.exception(e) # Esto te muestra el traceback completo en desarrollo
+            st.exception(e)
