@@ -5,3 +5,5 @@ plotly
 openpyxl
 fpdf
 python-docx
+python-pptx
+pdfplumber
