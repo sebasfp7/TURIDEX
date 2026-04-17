@@ -6,159 +6,127 @@ import plotly.graph_objects as go
 import io
 from fpdf import FPDF
 from docx import Document
+from pptx import Presentation
+import pdfplumber
 
-# ==================== 1. MOTOR FINANCIERO Y FORMATEO ====================
-st.set_page_config(page_title="Finatrix Elite v6.5", layout="wide")
+# ==================== 1. CONFIGURACIÓN Y ESTILO ====================
+st.set_page_config(page_title="Finatrix Ultra v7.0", layout="wide")
 
-def safe_format(valor, tipo='num'):
-    if not isinstance(valor, (int, float)): return "N/D"
-    if tipo == 'pct': return f"{valor:.2%}"
-    if tipo == 'x': return f"{valor:.2f}x"
-    return f"${valor:,.0f}"
+st.markdown("""
+    <style>
+    .reportview-container .main .block-container{ padding-top: 2rem; }
+    .stMetric { background-color: #f0f2f6; padding: 15px; border-radius: 10px; border: 1px solid #d1d5db; }
+    .evidence-card { padding: 20px; border-radius: 10px; margin-bottom: 20px; border-left: 5px solid #2563eb; background-color: #ffffff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    </style>
+    """, unsafe_allow_html=True)
 
-def safe_div(n, d):
-    if n is None or d is None or d == 0: return None
-    return n / d
+# ==================== 2. LECTORES MULTIFORMATO ====================
+def leer_archivo(uploaded_file):
+    ext = uploaded_file.name.split('.')[-1].lower()
+    content = ""
+    try:
+        if ext == 'xlsx':
+            xls = pd.ExcelFile(uploaded_file)
+            for sheet in xls.sheet_names:
+                df = pd.read_excel(xls, sheet_name=sheet).head(50)
+                content += f"\nHoja: {sheet}\n{df.to_csv(index=False, sep='|')}\n"
+        elif ext == 'pdf':
+            with pdfplumber.open(uploaded_file) as pdf:
+                content = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
+        elif ext == 'docx':
+            doc = Document(uploaded_file)
+            content = "\n".join([p.text for p in doc.paragraphs])
+        elif ext == 'pptx':
+            prs = Presentation(uploaded_file)
+            for slide in prs.slides:
+                for shape in slide.shapes:
+                    if hasattr(shape, "text"): content += shape.text + " "
+        return content[:30000] # Cap para Groq
+    except Exception as e:
+        st.error(f"Error leyendo {ext.upper()}: {e}")
+        return None
 
-def calcular_metricas_python(d_a1, d_a5):
-    v1, v5, eb5 = d_a1.get('ventas'), d_a5.get('ventas'), d_a5.get('ebitda')
-    # CAGR calculado sobre 4 años
-    cagr = ((v5 / v1)**(1/4) - 1) if v1 and v5 and v1 > 0 and v5 > 0 else None
-    return {
-        "cagr": cagr,
-        "m_ebitda": safe_div(eb5, v5),
-        "liquidez": safe_div(d_a5.get('activos_corrientes'), d_a5.get('pasivos_corrientes')),
-        "incoherencia": True if (eb5 and v5 and eb5 > v5) else False,
-        "eva": d_a5.get('eva'),
-        "wacc": d_a5.get('wacc'),
-        "uodi": d_a5.get('uodi'),
-        "activos_totales": d_a5.get('activos_totales')
-    }
+# ==================== 3. LÓGICA DE NEGOCIO ====================
+def safe_div(n, d): return n / d if d and d != 0 else 0
 
-def validar_balance_pro(d):
-    act, pas, pat = d.get('activos_totales'), d.get('pasivos_totales'), d.get('patrimonio')
-    if not all(isinstance(x, (int, float)) for x in [act, pas, pat]):
-        return "⚠️ Datos de balance insuficientes."
-    diff = abs(act - (pas + pat))
-    return f"❌ Descuadre: ${diff:,.0f}" if diff > act * 0.01 else "✅ Balance Cuadrado"
-
-# ==================== 2. EXTRACCIÓN Y NARRATIVA ====================
-def extraer_datos_excel(archivo):
-    xls = pd.ExcelFile(archivo)
-    texto = ""
-    for sheet in xls.sheet_names:
-        df = pd.read_excel(xls, sheet_name=sheet).head(35)
-        df_clean = df.where(pd.notnull(df), None)
-        texto += f"\n--- HOJA: {sheet} ---\n{df_clean.to_csv(index=False, sep='|')}\n"
-    if len(texto) > 26000:
-        st.sidebar.warning("⚠️ Datos truncados por tamaño de Excel.")
-        return texto[:26000] + "\n[TRUNCADO]"
-    return texto
-
-def obtener_analisis_ia(contexto, m, client):
-    c_txt, e_txt = safe_format(m['cagr'], 'pct'), safe_format(m['m_ebitda'], 'pct')
-    l_txt, w_txt, ev_txt = safe_format(m['liquidez'], 'x'), safe_format(m['wacc'], 'pct'), safe_format(m['eva'])
-
-    prompt = f"""Eres Senior Partner de Consultoría. Analiza estos datos verificados:
-    - CAGR: {c_txt} | Margen EBITDA: {e_txt} | Liquidez: {l_txt}
-    - WACC: {w_txt} | EVA: {ev_txt}
-    - Incoherencia: {"SÍ" if m['incoherencia'] else "No detectada"}
-
-    Excel context: {contexto}
-
-    RESPONDE EXCLUSIVAMENTE EN FORMATO JSON:
-    {{ "diagnostico": "Escribe un informe de consultoría detallado en markdown...", "score": 0-100 }}
-    """
-    res = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role":"user", "content":prompt}],
-        response_format={"type":"json_object"}
-    )
+def procesar_ia(contexto, client):
+    prompt = f"""Eres un Auditor Senior de Wall Street. Analiza este contenido financiero:
+    {contexto}
+    
+    Genera un JSON con esta estructura exacta:
+    {{
+      "diagnostico": "Resumen ejecutivo...",
+      "score": 0-100,
+      "metricas": {{"ventas_a1": 0, "ventas_a5": 0, "ebitda": 0, "eva": 0, "wacc": 0}},
+      "evidencias": [
+          {{"punto": "Nombre de la métrica", "valor": "X.XX", "estado": "Riesgo/Oportunidad", "porque": "Explicación"}},
+          ...
+      ]
+    }}"""
+    res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"user", "content":prompt}], response_format={"type":"json_object"})
     return json.loads(res.choices[0].message.content)
 
-# ==================== 3. INTERFAZ Y FLUJO ====================
-st.sidebar.header("🛡️ Finatrix Elite v6.5")
+# ==================== 4. INTERFAZ PRINCIPAL ====================
+st.sidebar.header("🛡️ Finatrix Ultra v7.0")
 api_key = st.sidebar.text_input("Groq API Key", type="password")
-archivo = st.sidebar.file_uploader("Subir Archivo Excel", type=["xlsx"])
+archivo = st.sidebar.file_uploader("Subir Balance/Informe (Excel, PDF, Word, PPT)", type=["xlsx", "pdf", "docx", "pptx"])
 
-if not api_key:
-    st.info("🔑 Ingresa tu API Key para comenzar.")
-elif archivo:
+if api_key and archivo:
     client = Groq(api_key=api_key)
-    if st.button("🚀 Iniciar Auditoría Forense"):
-        try:
-            with st.spinner("Auditando estados financieros..."):
-                texto_excel = extraer_datos_excel(archivo)
+    if st.button("🚀 Iniciar Auditoría Profunda"):
+        raw_text = leer_archivo(archivo)
+        if raw_text:
+            data = procesar_ia(raw_text, client)
+            
+            # --- DISEÑO DE INFORMACIÓN ---
+            st.title("📊 Informe de Situación Financiera")
+            st.markdown(f"### {data['diagnostico']}")
+            
+            c1, c2, c3 = st.columns(3)
+            m = data['metricas']
+            c1.metric("Salud Global", f"{data['score']}/100")
+            c2.metric("EVA Detectado", f"${m['eva']:,.0f}")
+            c3.metric("WACC", f"{m['wacc']:.2%}")
 
-                extract_prompt = """Extrae SOLO JSON:
-                {"año1": {"ventas":num,"ebitda":num,"activos_corrientes":num,"pasivos_corrientes":num},
-                "año5": {"ventas":num,"ebitda":num,"activos_totales":num,"pasivos_totales":num,"patrimonio":num,
-                "activos_corrientes":num,"pasivos_corrientes":num,"eva":num,"wacc":num,"uodi":num}}"""
+            # --- TABLA DE EVIDENCIAS (NUEVO DISEÑO) ---
+            st.write("---")
+            st.subheader("🔍 Memoria de Cálculo y Justificación de Riesgos")
+            
+            df_ev = pd.DataFrame(data['evidencias'])
+            def color_estado(val):
+                color = '#fee2e2' if val == 'Riesgo' else '#dcfce7'
+                return f'background-color: {color}'
+            
+            st.table(df_ev.style.applymap(color_estado, subset=['estado']))
 
-                res_raw = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[{"role":"user", "content": f"{extract_prompt}\n{texto_excel}"}],
-                    response_format={"type":"json_object"}
-                )
-                d_raw = json.loads(res_raw.choices[0].message.content)
+            # --- EXPORTACIONES CORREGIDAS ---
+            st.write("---")
+            st.subheader("📥 Exportar Resultados")
+            ce1, ce2, ce3 = st.columns(3)
+            
+            # PDF
+            with ce1:
+                pdf = FPDF()
+                pdf.add_page()
+                pdf.set_font("Arial", 'B', 16); pdf.cell(0, 10, "Informe Auditoría Finatrix", 0, 1)
+                pdf.set_font("Arial", size=10); pdf.multi_cell(0, 5, data['diagnostico'].encode('latin-1', 'replace').decode('latin-1'))
+                pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                st.download_button("PDF", pdf_bytes, "Informe.pdf", "application/pdf")
 
-                d_a1, d_a5 = d_raw.get('año1', {}), d_raw.get('año5', {})
-                m = calcular_metricas_python(d_a1, d_a5)
-                status_bal = validar_balance_pro(d_a5)
-                analisis = obtener_analisis_ia(texto_excel, m, client)
+            # WORD
+            with ce2:
+                doc = Document()
+                doc.add_heading("Informe Finatrix", 0)
+                doc.add_paragraph(data['diagnostico'])
+                doc_io = io.BytesIO()
+                doc.save(doc_io); doc_io.seek(0)
+                st.download_button("Word", doc_io.getvalue(), "Informe.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
-                tab1, tab2 = st.tabs(["📋 Informe Estratégico", "🛡️ Centro de Auditoría"])
-
-                with tab1:
-                    diag_md = analisis.get('diagnostico', '')
-                    st.markdown(diag_md)
-
-                    st.write("---")
-                    c_down1, c_down2 = st.columns(2)
-
-                    with c_down1:
-                        if st.button("📄 Descargar PDF"):
-                            pdf = FPDF()
-                            pdf.add_page()
-                            pdf.set_font("Arial", 'B', 16)
-                            pdf.cell(0, 10, "Informe Finatrix Elite", 0, 1, 'C')
-                            pdf.ln(10)
-                            pdf.set_font("Arial", size=11)
-                            for line in diag_md.split('\n'):
-                                line_clean = line.encode('latin-1', 'replace').decode('latin-1')
-                                pdf.multi_cell(0, 6, line_clean)
-                            pdf_out = pdf.output(dest='S').encode('latin-1')
-                            st.download_button("⬇️ Guardar PDF", pdf_out, "informe.pdf", "application/pdf")
-
-                    with c_down2:
-                        if st.button("📝 Descargar Word"):
-                            doc = Document()
-                            doc.add_heading('Informe de Consultoría Finatrix', 0)
-                            for line in diag_md.split('\n'):
-                                doc.add_paragraph(line)
-                            doc_io = io.BytesIO()
-                            doc.save(doc_io)
-                            doc_io.seek(0)
-                            st.download_button("⬇️ Guardar Word", doc_io.getvalue(), "informe.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-
-                with tab2:
-                    st.metric("Score de Calidad", f"{analisis.get('score', 0)}/100")
-                    st.write(f"**Validación:** {status_bal}")
-                    if m['incoherencia']: st.error("🚨 Alerta: EBITDA > Ventas.")
-                    st.json(m)
-
-                # --- SIMULADOR ---
-                st.write("---")
-                with st.expander("🎮 Simulador CFO"):
-                    sc1, sc2, sc3 = st.columns(3)
-                    v_s = sc1.number_input("Ventas Proyectadas", value=float(d_a5.get('ventas') or 0))
-                    e_s = sc2.number_input("EBITDA Proyectado", value=float(d_a5.get('ebitda') or 0))
-                    w_s = sc3.number_input("WACC (%)", value=float((d_a5.get('wacc') or 0.12)*100)) / 100
-
-                    if st.button("📊 Recalcular", disabled=d_a5.get('activos_totales') is None):
-                        u_sim = d_a5.get('uodi') if d_a5.get('uodi') is not None else e_s * 0.7
-                        eva_sim = u_sim - ((d_a5.get('activos_totales') or 1) * w_s)
-                        st.metric("Nuevo EVA", safe_format(eva_sim), delta=safe_format(eva_sim - (m['eva'] or 0)))
-
-        except Exception as e:
-            st.error(f"Falla crítica: {e}")
+            # EXCEL (NUEVO)
+            with ce3:
+                excel_io = io.BytesIO()
+                with pd.ExcelWriter(excel_io, engine='openpyxl') as writer:
+                    df_ev.to_excel(writer, index=False, sheet_name='Evidencias')
+                    pd.DataFrame([m]).to_excel(writer, index=False, sheet_name='Metricas')
+                excel_io.seek(0)
+                st.download_button("Excel de Auditoría", excel_io.getvalue(), "Auditoria.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
