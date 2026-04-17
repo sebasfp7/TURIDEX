@@ -1,6 +1,9 @@
-streamlit
-pandas
-groq
-google-generativeai
-requests
-pdfplumber
+streamlit==1.32.0
+pandas==2.2.1
+openpyxl==3.1.2
+groq==0.4.2
+google-generativeai==0.4.0
+anthropic==0.18.1
+openai==1.12.0
+pdfplumber==0.10.3
+python-docx==1.1.0
