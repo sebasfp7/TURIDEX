@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 import io
 from xhtml2pdf import pisa
 from docx import Document
+import markdown # NUEVO: para que el PDF renderice bien
 
 # ==================== 1. MOTOR FINANCIERO Y FORMATEO ====================
 st.set_page_config(page_title="Finatrix Elite v6.4", layout="wide")
@@ -22,7 +23,6 @@ def safe_div(n, d):
 
 def calcular_metricas_python(d_a1, d_a5):
     v1, v5, eb5 = d_a1.get('ventas'), d_a5.get('ventas'), d_a5.get('ebitda')
-    # CAGR basado en 4 periodos (Año 1 al Año 5)
     cagr = ((v5 / v1)**(1/4) - 1) if v1 and v5 and v1 > 0 and v5 > 0 else None
     return {
         "cagr": cagr,
@@ -58,20 +58,20 @@ def extraer_datos_excel(archivo):
 def obtener_analisis_ia(contexto, m, client):
     c_txt, e_txt = safe_format(m['cagr'], 'pct'), safe_format(m['m_ebitda'], 'pct')
     l_txt, w_txt, ev_txt = safe_format(m['liquidez'], 'x'), safe_format(m['wacc'], 'pct'), safe_format(m['eva'])
-    
-    prompt = f"""Eres un Senior Partner. Analiza estos datos verificados:
+
+    prompt = f"""Eres Senior Partner. Analiza estos datos verificados:
     - CAGR: {c_txt} | Margen EBITDA: {e_txt} | Liquidez: {l_txt}
     - WACC: {w_txt} | EVA: {ev_txt}
     - Alerta de Incoherencia: {"SÍ" if m['incoherencia'] else "No detectada"}
-    
+
     Excel context: {contexto}
-    
+
     RESPONDE EXCLUSIVAMENTE EN FORMATO JSON:
     {{ "diagnostico": "markdown extenso con estructura de consultoría...", "score": 0-100 }}
     """
     res = client.chat.completions.create(
-        model="llama-3.3-70b-versatile", 
-        messages=[{"role":"user", "content":prompt}], 
+        model="llama-3.3-70b-versatile",
+        messages=[{"role":"user", "content":prompt}],
         response_format={"type":"json_object"}
     )
     return json.loads(res.choices[0].message.content)
@@ -89,50 +89,48 @@ elif archivo:
         try:
             with st.spinner("Auditando estados financieros..."):
                 texto_excel = extraer_datos_excel(archivo)
-                
-                # Paso 1: Extracción de datos con IA
-                extract_prompt = """Extrae SOLO JSON. Si un dato no existe usa null. 
-                {"año1": {"ventas":num,"ebitda":num,"activos_corrientes":num,"pasivos_corrientes":num}, 
+
+                extract_prompt = """Extrae SOLO JSON. Si un dato no existe usa null.
+                {"año1": {"ventas":num,"ebitda":num,"activos_corrientes":num,"pasivos_corrientes":num},
                 "año5": {"ventas":num,"ebitda":num,"activos_totales":num,"pasivos_totales":num,"patrimonio":num,
                 "activos_corrientes":num,"pasivos_corrientes":num,"eva":num,"wacc":num,"uodi":num}}"""
-                
+
                 res_raw = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile", 
-                    messages=[{"role":"user", "content": f"{extract_prompt}\n{texto_excel}"}], 
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role":"user", "content": f"{extract_prompt}\n{texto_excel}"}],
                     response_format={"type":"json_object"}
                 )
                 d_raw = json.loads(res_raw.choices[0].message.content)
-                
-                # Paso 2: Motor Híbrido (Python + Narrativa)
+
                 d_a1, d_a5 = d_raw.get('año1', {}), d_raw.get('año5', {})
                 m = calcular_metricas_python(d_a1, d_a5)
                 status_bal = validar_balance_pro(d_a5)
                 analisis = obtener_analisis_ia(texto_excel, m, client)
-                
-                # --- VISTA DE RESULTADOS ---
-                tab1, tab2 = st.tabs(["📋 Informe Estratégico", "🛡️ Auditoría Contable"])
-                
+
+                tab1, tab2 = st.tabs(["📋 Informe Estratégico", "🛡️ Centro de Auditoría"])
+
                 with tab1:
                     diag_md = analisis.get('diagnostico', '')
                     st.markdown(diag_md)
-                    
+
                     st.write("---")
                     c_down1, c_down2 = st.columns(2)
-                    
-                    # Exportación PDF
+
                     with c_down1:
-                        if st.button("📄 Descargar PDF"):
-                            html = f"<html><body><h1>Informe Finatrix</h1>{diag_md.replace('\n', '<br>')}</body></html>"
+                        if st.button("📄 Generar Informe PDF"):
+                            # Fix: convertir markdown a HTML antes del PDF
+                            html_content = markdown.markdown(diag_md)
+                            html = f"<html><body><h1>Informe Finatrix</h1>{html_content}</body></html>"
                             p_io = io.BytesIO()
                             pisa.CreatePDF(io.StringIO(html), dest=p_io)
                             st.download_button("⬇️ Obtener PDF", p_io.getvalue(), "informe.pdf", "application/pdf")
-                    
-                    # Exportación Word
+
                     with c_down2:
                         if st.button("📝 Descargar Word"):
                             doc = Document()
                             doc.add_heading('Informe de Consultoría Finatrix Elite', 0)
-                            doc.add_paragraph(diag_md)
+                            for line in diag_md.split('\n'):
+                                doc.add_paragraph(line)
                             doc_io = io.BytesIO()
                             doc.save(doc_io)
                             doc_io.seek(0)
@@ -140,30 +138,29 @@ elif archivo:
 
                 with tab2:
                     st.metric("Score de Calidad", f"{analisis.get('score', 0)}/100")
-                    st.write(f"**Estado del Balance:** {status_bal}")
+                    st.write(f"**Validación:** {status_bal}")
                     if m['incoherencia']: st.error("🚨 Inconsistencia detectada: EBITDA > Ventas.")
                     st.write("### Trazabilidad de Números")
                     st.json(m)
 
-                # --- SIMULADOR v6.4 ---
                 st.write("---")
                 with st.expander("🎮 Simulador de Escenarios (CFO Dashboard)"):
                     sc1, sc2, sc3 = st.columns(3)
                     v_s = sc1.number_input("Ventas Proyectadas", value=float(d_a5.get('ventas') or 0))
                     e_s = sc2.number_input("EBITDA Proyectado", value=float(d_a5.get('ebitda') or 0))
                     w_s = sc3.number_input("WACC (%)", value=float((d_a5.get('wacc') or 0.12)*100)) / 100
-                    
+
                     if st.button("📊 Recalcular Valor", disabled=d_a5.get('activos_totales') is None):
-                        # Cálculo de EVA dinámico
                         u_base = d_a5.get('uodi')
                         u_sim = u_base if u_base is not None else e_s * 0.7
                         cap = d_a5.get('activos_totales') or 1
                         eva_sim = u_sim - (cap * w_s)
-                        
+
                         rc1, rc2, rc3 = st.columns(3)
                         rc1.metric("Nuevo Margen EBITDA", safe_format(safe_div(e_s, v_s), 'pct'))
                         rc2.metric("Nuevo EVA", safe_format(eva_sim), delta=safe_format(eva_sim - (m['eva'] or 0)))
                         rc3.write("✅ Generación de Valor" if eva_sim > 0 else "❌ Destrucción de Valor")
 
         except Exception as e:
-            st.error(f"Falla en el motor: {e}")
+            st.error(f"Falla crítica: {e}")
+            st.exception(e) # Esto te muestra el traceback completo en desarrollo
