@@ -9,18 +9,18 @@ from docx import Document
 from pptx import Presentation
 import pdfplumber
 
-# ==================== 1. CONFIGURACIÓN Y ESTILO ====================
-st.set_page_config(page_title="Finatrix Ultra v7.0", layout="wide")
+# ==================== 1. CONFIGURACIÓN Y ESTILOS ====================
+st.set_page_config(page_title="Finatrix Ultra v7.1", layout="wide")
 
 st.markdown("""
     <style>
-    .reportview-container .main .block-container{ padding-top: 2rem; }
-    .stMetric { background-color: #f0f2f6; padding: 15px; border-radius: 10px; border: 1px solid #d1d5db; }
-    .evidence-card { padding: 20px; border-radius: 10px; margin-bottom: 20px; border-left: 5px solid #2563eb; background-color: #ffffff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .main { background-color: #f8f9fa; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border: 1px solid #e9ecef; }
+    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #2563eb; color: white; }
     </style>
     """, unsafe_allow_html=True)
 
-# ==================== 2. LECTORES MULTIFORMATO ====================
+# ==================== 2. LECTORES DE ARCHIVOS ====================
 def leer_archivo(uploaded_file):
     ext = uploaded_file.name.split('.')[-1].lower()
     content = ""
@@ -41,92 +41,103 @@ def leer_archivo(uploaded_file):
             for slide in prs.slides:
                 for shape in slide.shapes:
                     if hasattr(shape, "text"): content += shape.text + " "
-        return content[:30000] # Cap para Groq
+        return content[:30000]
     except Exception as e:
-        st.error(f"Error leyendo {ext.upper()}: {e}")
+        st.error(f"Error procesando {ext.upper()}: {e}")
         return None
 
-# ==================== 3. LÓGICA DE NEGOCIO ====================
-def safe_div(n, d): return n / d if d and d != 0 else 0
-
+# ==================== 3. PROCESAMIENTO IA ====================
 def procesar_ia(contexto, client):
-    prompt = f"""Eres un Auditor Senior de Wall Street. Analiza este contenido financiero:
-    {contexto}
+    prompt = f"""Eres un Partner de Auditoría. Analiza este contenido financiero y extrae métricas clave.
+    Contenido: {contexto}
     
-    Genera un JSON con esta estructura exacta:
+    Responde ÚNICAMENTE en JSON con esta estructura:
     {{
       "diagnostico": "Resumen ejecutivo...",
-      "score": 0-100,
-      "metricas": {{"ventas_a1": 0, "ventas_a5": 0, "ebitda": 0, "eva": 0, "wacc": 0}},
+      "score": 70,
+      "metricas": {{"ventas_a1": 100, "ventas_a5": 500, "ebitda": 50, "eva": 759, "wacc": 0.1152}},
       "evidencias": [
-          {{"punto": "Nombre de la métrica", "valor": "X.XX", "estado": "Riesgo/Oportunidad", "porque": "Explicación"}},
-          ...
+          {{"punto": "Nombre métrica", "valor": "10%", "estado": "Riesgo", "porque": "razón..."}},
+          {{"punto": "Nombre métrica", "valor": "20%", "estado": "Oportunidad", "porque": "razón..."}}
       ]
     }}"""
-    res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"user", "content":prompt}], response_format={"type":"json_object"})
+    res = client.chat.completions.create(
+        model="llama-3.3-70b-versatile", 
+        messages=[{"role":"user", "content":prompt}], 
+        response_format={"type":"json_object"}
+    )
     return json.loads(res.choices[0].message.content)
 
-# ==================== 4. INTERFAZ PRINCIPAL ====================
-st.sidebar.header("🛡️ Finatrix Ultra v7.0")
+# ==================== 4. INTERFAZ Y RENDERIZADO ====================
+st.sidebar.title("🛡️ Finatrix Ultra v7.1")
 api_key = st.sidebar.text_input("Groq API Key", type="password")
-archivo = st.sidebar.file_uploader("Subir Balance/Informe (Excel, PDF, Word, PPT)", type=["xlsx", "pdf", "docx", "pptx"])
+archivo = st.sidebar.file_uploader("Sube Excel, PDF, Word o PPT", type=["xlsx", "pdf", "docx", "pptx"])
 
 if api_key and archivo:
     client = Groq(api_key=api_key)
-    if st.button("🚀 Iniciar Auditoría Profunda"):
-        raw_text = leer_archivo(archivo)
-        if raw_text:
-            data = procesar_ia(raw_text, client)
-            
-            # --- DISEÑO DE INFORMACIÓN ---
-            st.title("📊 Informe de Situación Financiera")
-            st.markdown(f"### {data['diagnostico']}")
-            
-            c1, c2, c3 = st.columns(3)
-            m = data['metricas']
-            c1.metric("Salud Global", f"{data['score']}/100")
-            c2.metric("EVA Detectado", f"${m['eva']:,.0f}")
-            c3.metric("WACC", f"{m['wacc']:.2%}")
+    if st.button("🚀 Iniciar Análisis"):
+        try:
+            with st.spinner("Analizando documentos y detectando riesgos..."):
+                raw_text = leer_archivo(archivo)
+                data = procesar_ia(raw_text, client)
+                
+                # --- CABECERA ---
+                st.title("📊 Informe de Situación Financiera")
+                st.info(data['diagnostico'])
+                
+                # --- MÉTRICAS ---
+                m = data['metricas']
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Salud Global", f"{data['score']}/100")
+                col2.metric("EVA Detectado", f"${m.get('eva', 0):,.0f}")
+                col3.metric("WACC", f"{m.get('wacc', 0):.2%}")
 
-            # --- TABLA DE EVIDENCIAS (NUEVO DISEÑO) ---
-            st.write("---")
-            st.subheader("🔍 Memoria de Cálculo y Justificación de Riesgos")
-            
-            df_ev = pd.DataFrame(data['evidencias'])
-            def color_estado(val):
-                color = '#fee2e2' if val == 'Riesgo' else '#dcfce7'
-                return f'background-color: {color}'
-            
-            st.table(df_ev.style.applymap(color_estado, subset=['estado']))
+                # --- TABLA DE RIESGOS (FIXED) ---
+                st.subheader("🔍 Memoria de Cálculo y Justificación de Riesgos")
+                df_ev = pd.DataFrame(data['evidencias'])
+                
+                # Fix para el error de estilo: validamos que existan las columnas
+                if not df_ev.empty:
+                    def highlight_rows(row):
+                        color = '#fee2e2' if row['estado'] == 'Riesgo' else '#dcfce7'
+                        return [f'background-color: {color}'] * len(row)
+                    
+                    # Usamos 'apply' en lugar del problemático 'applymap'
+                    st.dataframe(df_ev.style.apply(highlight_rows, axis=1), use_container_width=True)
+                else:
+                    st.warning("No se pudieron generar evidencias tabulares.")
 
-            # --- EXPORTACIONES CORREGIDAS ---
-            st.write("---")
-            st.subheader("📥 Exportar Resultados")
-            ce1, ce2, ce3 = st.columns(3)
-            
-            # PDF
-            with ce1:
-                pdf = FPDF()
-                pdf.add_page()
-                pdf.set_font("Arial", 'B', 16); pdf.cell(0, 10, "Informe Auditoría Finatrix", 0, 1)
-                pdf.set_font("Arial", size=10); pdf.multi_cell(0, 5, data['diagnostico'].encode('latin-1', 'replace').decode('latin-1'))
-                pdf_bytes = pdf.output(dest='S').encode('latin-1')
-                st.download_button("PDF", pdf_bytes, "Informe.pdf", "application/pdf")
+                # --- EXPORTACIONES ---
+                st.write("---")
+                st.subheader("📥 Descargar Reportes")
+                e1, e2, e3 = st.columns(3)
 
-            # WORD
-            with ce2:
-                doc = Document()
-                doc.add_heading("Informe Finatrix", 0)
-                doc.add_paragraph(data['diagnostico'])
-                doc_io = io.BytesIO()
-                doc.save(doc_io); doc_io.seek(0)
-                st.download_button("Word", doc_io.getvalue(), "Informe.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                # PDF con FPDF
+                with e1:
+                    pdf = FPDF()
+                    pdf.add_page()
+                    pdf.set_font("Arial", 'B', 16); pdf.cell(0, 10, "Informe Finatrix", 0, 1)
+                    pdf.set_font("Arial", size=10); pdf.multi_cell(0, 6, data['diagnostico'].encode('latin-1', 'replace').decode('latin-1'))
+                    pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                    st.download_button("Descargar PDF", pdf_bytes, "informe.pdf", "application/pdf")
 
-            # EXCEL (NUEVO)
-            with ce3:
-                excel_io = io.BytesIO()
-                with pd.ExcelWriter(excel_io, engine='openpyxl') as writer:
-                    df_ev.to_excel(writer, index=False, sheet_name='Evidencias')
-                    pd.DataFrame([m]).to_excel(writer, index=False, sheet_name='Metricas')
-                excel_io.seek(0)
-                st.download_button("Excel de Auditoría", excel_io.getvalue(), "Auditoria.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                # Word con python-docx
+                with e2:
+                    doc = Document()
+                    doc.add_heading("Informe de Auditoría", 0)
+                    doc.add_paragraph(data['diagnostico'])
+                    doc_buffer = io.BytesIO()
+                    doc.save(doc_buffer); doc_buffer.seek(0)
+                    st.download_button("Descargar Word", doc_buffer.getvalue(), "informe.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+                # Excel con pandas
+                with e3:
+                    ex_buffer = io.BytesIO()
+                    with pd.ExcelWriter(ex_buffer, engine='openpyxl') as writer:
+                        df_ev.to_excel(writer, index=False, sheet_name='Evidencias')
+                    ex_buffer.seek(0)
+                    st.download_button("Descargar Excel", ex_buffer.getvalue(), "evidencias.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        except Exception as e:
+            st.error(f"Falla crítica en la visualización: {e}")
+            st.code(e) # Para ver el error exacto en pantalla
