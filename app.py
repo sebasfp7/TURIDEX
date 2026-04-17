@@ -5,7 +5,7 @@ import json
 import plotly.graph_objects as go
 
 # ==================== CONFIGURACIÓN Y ESTILO ====================
-st.set_page_config(page_title="Finatrix Elite Auditor v4.7", layout="wide")
+st.set_page_config(page_title="Finatrix Elite Auditor v4.8", layout="wide")
 
 # ==================== NÚCLEO DE CÁLCULO SEGURO ====================
 def safe_div(n, d):
@@ -14,36 +14,37 @@ def safe_div(n, d):
     return n / d
 
 def calcular_cagr(v_ini, v_fin, periodos=4):
-    if v_ini is None or v_fin is None or v_ini <= 0:
+    if v_ini is None or v_fin is None or v_ini <= 0 or v_fin <= 0:
         return None
-    if v_fin <= 0: return -1.0  
     return (v_fin / v_ini) ** (1 / periodos) - 1
 
 # ==================== FUNCIÓN DE TRAZABILIDAD (EL PORQUÉ) ====================
 def generar_memoria_calculo(d1, d5):
     memoria = []
     
-    # Crecimiento
-    v1, v5 = d1.get('ventas', 0), d5.get('ventas', 0)
+    # 1. Crecimiento (CAGR)
+    v1, v5 = d1.get('ventas'), d5.get('ventas')
     cagr = calcular_cagr(v1, v5)
-    txt_cagr = f"{cagr:.2%}" if cagr is not None else "N/A"
-    memoria.append(f"📌 **Crecimiento (CAGR):** Basado en Ventas Año 1 (${v1:,.0f}) y Año 5 (${v5:,.0f}). Resultado: {txt_cagr}")
+    # BLINDAJE: Solo formatea si cagr no es None
+    txt_cagr = f"{cagr:.2%}" if isinstance(cagr, (int, float)) else "No disponible"
+    memoria.append(f"📌 **Crecimiento (CAGR):** Ventas A1 (${v1 if v1 else 0:,.0f}) vs A5 (${v5 if v5 else 0:,.0f}). Resultado: {txt_cagr}")
 
-    # Margen EBITDA
-    eb5 = d5.get('ebitda', 0)
+    # 2. Margen EBITDA
+    eb5 = d5.get('ebitda')
     m_ebitda = safe_div(eb5, v5)
-    txt_margen = f"{m_ebitda:.2%}" if m_ebitda is not None else "N/A"
-    memoria.append(f"📌 **Margen EBITDA:** EBITDA (${eb5:,.0f}) / Ventas (${v5:,.0f}). Resultado: {txt_margen}")
+    txt_margen = f"{m_ebitda:.2%}" if isinstance(m_ebitda, (int, float)) else "No disponible"
+    memoria.append(f"📌 **Margen EBITDA:** EBITDA (${eb5 if eb5 else 0:,.0f}) / Ventas (${v5 if v5 else 0:,.0f}). Resultado: {txt_margen}")
 
-    # Punto de Equilibrio
-    pe = d5.get('punto_equilibrio_año5', 0)
+    # 3. Punto de Equilibrio
+    pe = d5.get('punto_equilibrio_año5')
     cobertura = safe_div(v5, pe)
-    txt_cobertura = f"{cobertura:.2f}x" if cobertura is not None else "N/A"
-    memoria.append(f"📌 **Cobertura PE:** Ventas (${v5:,.0f}) / Punto Equilibrio (${pe:,.0f}). Cobertura: {txt_cobertura}")
+    txt_cobertura = f"{cobertura:.2f}x" if isinstance(cobertura, (int, float)) else "No disponible"
+    memoria.append(f"📌 **Cobertura PE:** Ventas (${v5 if v5 else 0:,.0f}) / Pto. Equilibrio (${pe if pe else 0:,.0f}). Cobertura: {txt_cobertura}")
 
-    # EVA
-    eva = d5.get('eva', 0)
-    memoria.append(f"📌 **EVA:** Valor extraído de la hoja WACC-EVA. Resultado: ${eva:,.0f}")
+    # 4. EVA
+    eva = d5.get('eva')
+    txt_eva = f"${eva:,.0f}" if isinstance(eva, (int, float)) else "No encontrado"
+    memoria.append(f"📌 **EVA:** Valor extraído de la hoja WACC-EVA. Resultado: {txt_eva}")
     
     return memoria
 
@@ -61,9 +62,10 @@ def generar_analisis_consultoria(d_a1, d_a5):
     
     pe_ratio = safe_div(d_a5.get('ventas'), d_a5.get('punto_equilibrio_año5'))
     if pe_ratio is not None and pe_ratio < 1.1:
-        criticos.append("⚠️ Riesgo Operativo: Ventas muy cerca del Punto de Equilibrio.")
+        criticos.append("⚠️ Riesgo Operativo: Ventas peligrosamente cerca del Punto de Equilibrio.")
 
-    if d_a5.get('eva') is not None and d_a5['eva'] < 0:
+    eva = d_a5.get('eva')
+    if eva is not None and eva < 0:
         criticos.append("❌ Destrucción de Valor: El EVA es negativo.")
 
     return criticos, importantes, info
@@ -77,7 +79,7 @@ def extraer_datos_excel(archivo):
         texto += f"\n### HOJA: {sheet} ###\n{df.to_markdown(index=False)}\n"
     return texto[:26000]
 
-st.sidebar.header("⚙️ Finatrix Elite v4.7")
+st.sidebar.header("⚙️ Finatrix Elite v4.8")
 api_key = st.sidebar.text_input("Groq API Key", type="password")
 archivo = st.sidebar.file_uploader("Subir Plantilla", type=["xlsx"])
 
@@ -101,9 +103,9 @@ if archivo and api_key:
                 response_format={"type": "json_object"}
             )
             datos = json.loads(chat.choices[0].message.content)
-            d1, d5 = datos['año1'], datos['año5']
+            d1, d5 = datos.get('año1', {}), datos.get('año5', {})
 
-            # --- RENDERIZADO DE RESULTADOS ---
+            # --- RENDERIZADO ---
             t1, t2 = st.tabs(["💡 Informe", "🔍 El Porqué (Cálculos)"])
             
             with t1:
@@ -112,9 +114,13 @@ if archivo and api_key:
                 for i in imp: st.warning(i)
                 for f in inf: st.info(f)
                 
+                # Gráfico con protección de ceros
+                v_a1, v_a5 = d1.get('ventas') or 0, d5.get('ventas') or 0
+                e_a1, e_a5 = d1.get('ebitda') or 0, d5.get('ebitda') or 0
+                
                 fig = go.Figure()
-                fig.add_trace(go.Bar(name='Ventas', x=['A1', 'A5'], y=[d1.get('ventas'), d5.get('ventas')]))
-                fig.add_trace(go.Bar(name='EBITDA', x=['A1', 'A5'], y=[d1.get('ebitda'), d5.get('ebitda')]))
+                fig.add_trace(go.Bar(name='Ventas', x=['A1', 'A5'], y=[v_a1, v_a5]))
+                fig.add_trace(go.Bar(name='EBITDA', x=['A1', 'A5'], y=[e_a1, e_a5]))
                 st.plotly_chart(fig, use_container_width=True)
 
             with t2:
@@ -124,3 +130,5 @@ if archivo and api_key:
 
         except Exception as e:
             st.error(f"Error técnico: {e}")
+else:
+    st.info("Configura la API Key y sube el archivo para comenzar.")
